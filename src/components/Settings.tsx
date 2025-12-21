@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { RotateCcw, ExternalLink, AlertTriangle, Star, Edit2, ChevronDown, Calendar } from 'lucide-react';
+import { ExternalLink, Star, Edit2, ChevronDown, Calendar } from 'lucide-react';
 import { useAppStore } from '../store';
 import { AGENTS, USER_PROFILES } from '../constants/agents';
 import { 
-  resetAllData, 
   getUserProfile, 
   getAllPersonaProfiles,
   updatePersonaProfileName,
@@ -388,8 +387,6 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
     setAllPersonaProfiles,
     setActivePersonaProfile,
   } = useAppStore();
-  const [isResetting, setIsResetting] = useState(false);
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showApiModal, setShowApiModal] = useState(false);
   const [editingProfileName, setEditingProfileName] = useState<string | null>(null);
   const [tempProfileName, setTempProfileName] = useState('');
@@ -523,23 +520,6 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  const handleFullReset = async () => {
-    setIsResetting(true);
-    try {
-      await resetAllData();
-      clearMessages();
-      setCurrentConversation(null);
-      onClose();
-      // Reload the page to reset state (API keys are preserved)
-      window.location.reload();
-    } catch (err) {
-      console.error('Failed to reset:', err);
-    } finally {
-      setIsResetting(false);
-      setShowResetConfirm(false);
-    }
-  };
-
   return (
     <AnimatePresence>
       {isOpen && (
@@ -607,15 +587,6 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                       })(),
                     }}
                   >
-                    {/* Reset button in top right */}
-                    <button
-                      onClick={() => setShowResetConfirm(true)}
-                      className="absolute top-2 right-2 z-20 p-1.5 rounded-lg text-ash/40 hover:text-instinct hover:bg-instinct/10 transition-colors cursor-pointer"
-                      title="Reset all data"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" strokeWidth={1.5} />
-                    </button>
-                    
                     {/* Profile selector - top left */}
                     {allPersonaProfiles.length > 0 && (() => {
                       const activeProfile = allPersonaProfiles.find(p => p.isActive);
@@ -910,63 +881,6 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
               </a>
             </div>
           </motion.div>
-
-          {/* Reset confirmation modal */}
-          <AnimatePresence>
-            {showResetConfirm && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="fixed inset-0 z-[60] flex items-center justify-center p-4"
-              >
-                <div 
-                  className="absolute inset-0 bg-void/80"
-                  onClick={() => setShowResetConfirm(false)}
-                />
-                <motion.div
-                  initial={{ scale: 0.95, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  exit={{ scale: 0.95, opacity: 0 }}
-                  className="relative bg-charcoal border border-smoke/50 rounded-xl p-5 max-w-xs w-full"
-                >
-                  <div className="flex items-center gap-3 mb-3">
-                    <div 
-                      className="w-10 h-10 rounded-full flex items-center justify-center"
-                      style={{ backgroundColor: `${AGENTS.instinct.color}20` }}
-                    >
-                      <AlertTriangle className="w-5 h-5" style={{ color: AGENTS.instinct.color }} strokeWidth={1.5} />
-                    </div>
-                    <div>
-                      <h4 className="font-sans font-medium text-pearl">Reset Everything?</h4>
-                      <p className="text-xs text-ash font-mono">This cannot be undone</p>
-                    </div>
-                  </div>
-                  
-                  <p className="text-sm text-silver font-mono mb-4">
-                    All conversations, learned context, profile names, and agent weights will be permanently reset. API keys will be preserved.
-                  </p>
-                  
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setShowResetConfirm(false)}
-                      className="flex-1 px-3 py-2 bg-smoke/40 text-pearl font-mono text-sm rounded-lg hover:bg-smoke/60 transition-colors cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleFullReset}
-                      disabled={isResetting}
-                      className="flex-1 px-3 py-2 text-white font-mono text-sm rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed"
-                      style={{ backgroundColor: AGENTS.instinct.color }}
-                    >
-                      {isResetting ? 'Resetting...' : 'Reset'}
-                    </button>
-                  </div>
-                </motion.div>
-              </motion.div>
-            )}
-          </AnimatePresence>
 
           {/* API Key modal - use the full ApiKeyModal component */}
           <ApiKeyModal
