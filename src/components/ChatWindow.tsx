@@ -12,6 +12,7 @@ import {
   sendMessage, 
   createConversation, 
   getConversationOpener,
+  getUserProfile,
 } from '../hooks/useTauri';
 import { v4 as uuidv4 } from 'uuid';
 import governorIcon from '../assets/governor-transparent.png';
@@ -42,6 +43,7 @@ export function ChatWindow({ onOpenSettings }: ChatWindowProps) {
     setError,
     setApiConnectionError,
     userProfile,
+    setUserProfile,
   } = useAppStore();
   
   // Count active agents for Governor logic
@@ -271,6 +273,14 @@ export function ChatWindow({ onOpenSettings }: ChatWindowProps) {
       // Show weight change notification from Governor as toast
       if (result.weight_change) {
         setGovernorNotification(result.weight_change.message);
+      }
+      
+      // Refresh user profile to update weights and message count in UI
+      try {
+        const updatedProfile = await getUserProfile();
+        setUserProfile(updatedProfile);
+      } catch (profileErr) {
+        console.error('Failed to refresh profile:', profileErr);
       }
     } catch (err) {
       const rawError = err instanceof Error ? err.message : String(err);
