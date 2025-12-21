@@ -1,4 +1,5 @@
 use crate::db::{self, Message};
+use crate::knowledge::{INTERSECT_KNOWLEDGE, is_self_referential_query};
 use crate::memory::{GroundingLevel, UserProfileSummary, MemoryExtractor};
 use crate::openai::{ChatMessage, OpenAIClient};
 use serde::{Deserialize, Serialize};
@@ -344,7 +345,7 @@ Respond with ONLY valid JSON:
         ).await
     }
     
-    /// Get a response from a specific agent with explicit grounding
+    /// Get a response from a specific agent with explicit grounding and self-knowledge
     pub async fn get_agent_response_with_grounding(
         &self,
         agent: Agent,
@@ -356,13 +357,15 @@ Respond with ONLY valid JSON:
         grounding: Option<&GroundingDecision>,
         user_profile: Option<&UserProfileSummary>,
     ) -> Result<String, Box<dyn Error + Send + Sync>> {
-        let system_prompt = get_agent_system_prompt_with_grounding(
+        // Use knowledge-aware prompt that injects self-knowledge when relevant
+        let system_prompt = get_agent_system_prompt_with_knowledge(
             agent, 
             response_type, 
             primary_response, 
             primary_agent,
             grounding,
             user_profile,
+            user_message,
         );
         
         // Build conversation context
@@ -537,7 +540,7 @@ Your voice is: Thoughtful, probing, empathetic. You look beneath the surface. Yo
     format!("{}\n\n{}\n\nIMPORTANT: Never prefix your response with your name, labels, or tags like [INSTINCT]: or similar. Just respond directly. Be concise but substantive. Don't use emojis. Don't be sycophantic. Be genuine.", base_prompt, response_context)
 }
 
-/// Get the system prompt for an agent with grounding context
+/// Get the system prompt for an agent with grounding context and optional self-knowledge
 fn get_agent_system_prompt_with_grounding(
     agent: Agent, 
     response_type: ResponseType, 
@@ -548,29 +551,48 @@ fn get_agent_system_prompt_with_grounding(
 ) -> String {
     let base_prompt = get_agent_system_prompt(agent, response_type, primary_response, primary_agent);
     
-    // If no grounding or profile, return base prompt
-    let (Some(grounding), Some(profile)) = (grounding, user_profile) else {
-        return base_prompt;
-    };
+    let mut full_prompt = base_prompt;
     
-    // Determine grounding level
-    let level = GroundingLevel::from_str(&grounding.grounding_level)
-        .unwrap_or(GroundingLevel::Light);
-    
-    // Format profile based on grounding level
-    let grounding_context = MemoryExtractor::format_profile_for_prompt(profile, level);
-    
-    if grounding_context.is_empty() {
-        return base_prompt;
+    // Add grounding context if available
+    if let (Some(grounding), Some(profile)) = (grounding, user_profile) {
+        let level = GroundingLevel::from_str(&grounding.grounding_level)
+            .unwrap_or(GroundingLevel::Light);
+        
+        let grounding_context = MemoryExtractor::format_profile_for_prompt(profile, level);
+        
+        if !grounding_context.is_empty() {
+            let grounding_section = match level {
+                GroundingLevel::Light => format!("\n\n--- Context ---\n{}\n---", grounding_context),
+                GroundingLevel::Moderate => format!("\n\n--- About This User ---\n{}\n---\nUse this context naturally if relevant. Don't force it into the conversation.", grounding_context),
+                GroundingLevel::Deep => format!("\n\n--- User Profile (Use Thoughtfully) ---\n{}\n---\nThis is a personal topic. Draw on what you know about this user to provide a grounded, relevant response.", grounding_context),
+            };
+            full_prompt = format!("{}{}", full_prompt, grounding_section);
+        }
     }
     
-    let grounding_section = match level {
-        GroundingLevel::Light => format!("\n\n--- Context ---\n{}\n---", grounding_context),
-        GroundingLevel::Moderate => format!("\n\n--- About This User ---\n{}\n---\nUse this context naturally if relevant. Don't force it into the conversation.", grounding_context),
-        GroundingLevel::Deep => format!("\n\n--- User Profile (Use Thoughtfully) ---\n{}\n---\nThis is a personal topic. Draw on what you know about this user to provide a grounded, relevant response.", grounding_context),
-    };
+    full_prompt
+}
+
+/// Get the system prompt with self-knowledge injected for self-referential queries
+fn get_agent_system_prompt_with_knowledge(
+    agent: Agent, 
+    response_type: ResponseType, 
+    primary_response: Option<&str>, 
+    primary_agent: Option<&str>,
+    grounding: Option<&GroundingDecision>,
+    user_profile: Option<&UserProfileSummary>,
+    user_message: &str,
+) -> String {
+    let base_prompt = get_agent_system_prompt_with_grounding(
+        agent, response_type, primary_response, primary_agent, grounding, user_profile
+    );
     
-    format!("{}{}", base_prompt, grounding_section)
+    // Check if the user is asking about Intersect itself
+    if is_self_referential_query(user_message) {
+        format!("{}\n\n{}", base_prompt, INTERSECT_KNOWLEDGE)
+    } else {
+        base_prompt
+    }
 }
 
 /// Format a condensed profile summary for grounding decisions

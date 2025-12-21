@@ -1,4 +1,5 @@
 mod db;
+mod knowledge;
 mod memory;
 mod openai;
 mod orchestrator;
