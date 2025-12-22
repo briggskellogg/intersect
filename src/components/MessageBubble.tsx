@@ -164,7 +164,7 @@ export function MessageBubble({ message, isLatest: _isLatest }: MessageBubblePro
           )}
           
           <div 
-            className="leading-snug text-[13px] font-mono prose prose-invert prose-sm max-w-none prose-p:my-2 prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-headings:my-1.5 prose-strong:font-semibold prose-code:bg-smoke/30 prose-code:px-1 prose-code:rounded prose-code:text-[12px]"
+            className="message-content leading-snug text-[13px] font-mono prose prose-invert prose-sm max-w-none prose-p:my-2 prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-headings:my-1.5 prose-strong:font-semibold prose-code:bg-smoke/30 prose-code:px-1 prose-code:rounded prose-code:text-[12px]"
             style={!isUser && agent ? { color: `${agent.color}dd` } : undefined}
           >
             {isTyping ? (

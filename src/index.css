@@ -173,10 +173,32 @@ h1, h2, h3, h4, h5, h6, .font-header {
   -webkit-app-region: no-drag;
 }
 
-/* Selection */
+/* Text Selection - Beautiful, refined highlighting */
 ::selection {
-  background: var(--color-gold-soft);
+  background: rgba(107, 184, 201, 0.35); /* aurora color with transparency */
   color: var(--color-ivory);
+}
+
+::-moz-selection {
+  background: rgba(107, 184, 201, 0.35);
+  color: var(--color-ivory);
+}
+
+/* Disable text selection on UI elements */
+button,
+kbd,
+.no-select,
+header,
+[data-tauri-drag-region] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Enable selection only on content areas */
+.message-content,
+.selectable {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* Focus styles */

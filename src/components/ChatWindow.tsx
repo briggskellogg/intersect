@@ -242,15 +242,24 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
       } catch (err) {
         console.error('Failed to finalize on close:', err);
       }
+    } else {
+      // No conversation to archive, just mark as closing
+      isClosingRef.current = true;
     }
     
-    // Force close the window (destroy bypasses the close event to avoid infinite loop)
+    // Force close the window - try multiple methods
     try {
       await appWindow.destroy();
     } catch (err) {
       console.error('Failed to destroy window:', err);
-      // Fallback: try close as last resort
-      await appWindow.close();
+      try {
+        // Reset ref so we can try again if this also fails
+        isClosingRef.current = false;
+        await appWindow.close();
+      } catch (err2) {
+        console.error('Failed to close window:', err2);
+        isClosingRef.current = false;
+      }
     }
   }, [currentConversation, messages.length]);
   
