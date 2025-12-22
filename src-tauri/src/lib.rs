@@ -361,7 +361,7 @@ fn calculate_temporal_context(last_updated: Option<&str>) -> TemporalContext {
 
 /// Generate a brief Governor greeting for a new conversation using knowledge base
 async fn generate_governor_greeting(anthropic_key: &str, recent_conversations: &[db::Conversation], active_trait: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    use crate::anthropic::{AnthropicClient, AnthropicMessage, ThinkingBudget, CLAUDE_SONNET};
+    use crate::anthropic::{AnthropicClient, AnthropicMessage, ThinkingBudget, CLAUDE_HAIKU};
     
     // ===== TEMPORAL CONTEXT =====
     let last_updated = recent_conversations.first().map(|c| c.updated_at.as_str());
@@ -555,7 +555,7 @@ Subtly match the vibe of their active profile:
     ];
     
     client.chat_completion_advanced(
-        CLAUDE_SONNET,
+        CLAUDE_HAIKU,
         Some(system_prompt),
         messages,
         0.8,

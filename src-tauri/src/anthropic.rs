@@ -6,6 +6,7 @@ const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 
 // Model constants
+pub const CLAUDE_HAIKU: &str = "claude-3-5-haiku-20241022";
 pub const CLAUDE_SONNET: &str = "claude-sonnet-4-20250514";
 pub const CLAUDE_OPUS: &str = "claude-opus-4-20250514";
 

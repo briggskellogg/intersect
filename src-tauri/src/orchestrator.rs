@@ -1,4 +1,4 @@
-use crate::anthropic::{AnthropicClient, AnthropicMessage, ThinkingBudget, CLAUDE_SONNET, CLAUDE_OPUS};
+use crate::anthropic::{AnthropicClient, AnthropicMessage, ThinkingBudget, CLAUDE_HAIKU, CLAUDE_OPUS};
 use crate::db::{self, Message};
 use crate::disco_prompts::get_disco_prompt;
 use crate::knowledge::{INTERSECT_KNOWLEDGE, is_self_referential_query};
@@ -355,7 +355,7 @@ Respond with ONLY valid JSON:
             psyche_w * 100.0
         );
         
-        // Use Anthropic client for orchestration decisions (Claude Opus 4.5)
+        // Use Anthropic client for orchestration decisions (Claude Haiku for speed)
         let messages = vec![
             AnthropicMessage {
                 role: "user".to_string(),
@@ -363,11 +363,13 @@ Respond with ONLY valid JSON:
             },
         ];
         
-        let response = self.anthropic_client.chat_completion(
+        let response = self.anthropic_client.chat_completion_advanced(
+            CLAUDE_HAIKU,
             Some(&system_prompt),
             messages,
             0.3,
-            Some(150)
+            Some(150),
+            ThinkingBudget::None
         ).await?;
         
         // Parse JSON response
@@ -502,12 +504,12 @@ Respond with ONLY valid JSON:
         ];
         
         let response = self.anthropic_client.chat_completion_advanced(
-            CLAUDE_SONNET,
+            CLAUDE_HAIKU,
             Some(&system_prompt),
             messages,
             0.4,
             Some(150),
-            ThinkingBudget::Low
+            ThinkingBudget::None
         ).await?;
         
         let cleaned = response.trim().trim_start_matches("```json").trim_end_matches("```").trim();
@@ -587,12 +589,12 @@ Respond with ONLY valid JSON:
         ];
 
         let response = self.anthropic_client.chat_completion_advanced(
-            CLAUDE_SONNET,
+            CLAUDE_HAIKU,
             Some(system_prompt),
             messages,
             0.2,
             Some(200),
-            ThinkingBudget::Medium
+            ThinkingBudget::None
         ).await?;
         
         let cleaned = response
