@@ -342,12 +342,13 @@ async fn get_conversation_opener() -> Result<ConversationOpenerResult, String> {
     let active_profile = db::get_active_persona_profile().map_err(|e| e.to_string())?;
     let active_trait = active_profile.map(|p| p.dominant_trait).unwrap_or_else(|| "logic".to_string());
     
-    // Governor greets the user (using Anthropic/Claude)
+    // The dominant agent greets the user (using Anthropic/Claude)
     let content = generate_governor_greeting(&anthropic_key, &recent, &active_trait)
         .await
         .map_err(|e| e.to_string())?;
     
-    Ok(ConversationOpenerResult { agent: "system".to_string(), content })
+    // Return the dominant agent as the speaker, not "system"
+    Ok(ConversationOpenerResult { agent: active_trait.clone(), content })
 }
 
 // ============ Temporal Context for Greetings ============
@@ -547,7 +548,16 @@ async fn generate_governor_greeting(anthropic_key: &str, recent_conversations: &
     let full_context = context_parts.join("\n\n");
     
     // ===== SOPHISTICATED SYSTEM PROMPT =====
-    let system_prompt = r#"You are the Governor, the orchestration layer of Intersect. You greet users at the start of new conversations.
+    let agent_name = match active_trait {
+        "instinct" => "Snap",
+        "logic" => "Dot",
+        "psyche" => "Puff",
+        _ => "Dot"
+    };
+    
+    let system_prompt = format!(r#"You are {agent_name}, greeting the user at the start of a new conversation in Intersect.
+
+OUTPUT ONLY THE GREETING ITSELF. No explanations. No bullet points. No reasoning. Just the greeting text, nothing else.
 
 Your greeting must be CONTEXTUALLY INTELLIGENT based on the situation:
 
@@ -580,12 +590,12 @@ If the last conversation signals something unresolved:
 - "Did you figure out [topic]?" / "Still working through [X]?" / "Any progress on [topic]?"
 - This is POWERFUL -- use it when the context supports it.
 
-## PROFILE MATCHING
+## YOUR PERSONALITY ({agent_name})
 
-Subtly match the vibe of their active profile:
-- INSTINCT: Action-oriented, raw energy ("Something pulling at you?", "Ready to move?")
-- LOGIC: Analytical, problem-focused ("Got a puzzle?", "What are we solving?")
-- PSYCHE: Introspective, emotional ("How are you sitting with things?", "Need to process?")
+Speak in the voice of your profile:
+- INSTINCT (Snap): Action-oriented, raw energy, direct. "Something pulling at you?" / "Ready to move?"
+- LOGIC (Dot): Analytical, curious, problem-focused. "Got a puzzle?" / "What are we solving?"
+- PSYCHE (Puff): Introspective, warm, emotionally attuned. "How are you sitting with things?" / "Something on your mind?"
 
 ## TIME OF DAY
 
@@ -595,6 +605,7 @@ Subtly match the vibe of their active profile:
 
 ## RULES
 
+- OUTPUT ONLY THE GREETING. No explanations, no bullet points, no meta-commentary.
 - Keep it brief: 1-2 short sentences MAX
 - Be warm and familiar, never robotic or generic
 - If you know their name, USE IT occasionally (not every time)
@@ -611,21 +622,21 @@ Subtly match the vibe of their active profile:
 
 1. Timing context (quick return vs new day) -- this shapes the whole tone
 2. Unresolved topics from last conversation -- powerful if applicable
-3. Profile vibe matching
+3. Your personality voice
 4. Personal knowledge (name, interests)
-5. Time of day color"#;
+5. Time of day color"#);
 
     let client = AnthropicClient::new(anthropic_key);
     let messages = vec![
         AnthropicMessage {
             role: "user".to_string(),
-            content: format!("Generate a contextually appropriate greeting based on this situation:\n\n{}", full_context),
+            content: format!("Generate a contextually appropriate greeting based on this situation. Output ONLY the greeting text, nothing else:\n\n{}", full_context),
         },
     ];
     
     client.chat_completion_advanced(
         CLAUDE_HAIKU,
-        Some(system_prompt),
+        Some(&system_prompt),
         messages,
         0.8,
         Some(100), // More room for nuanced greeting
