@@ -140,23 +140,38 @@ export function ChatWindow({ onOpenSettings, onOpenReport }: ChatWindowProps) {
     }
   }, [userProfile?.apiKey, currentConversation]);
 
-  // Scroll to bottom when messages change or loading state changes
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isLoading]);
+  // Track if user has manually scrolled up
+  const userScrolledUp = useRef(false);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   
-  // Also scroll on any content update with a small delay for render
+  // Check if user is near bottom of scroll
+  const isNearBottom = () => {
+    const container = messagesContainerRef.current;
+    if (!container) return true;
+    const threshold = 100; // pixels from bottom
+    return container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+  };
+  
+  // Track user scroll - if they scroll up, don't auto-scroll
+  const handleScroll = () => {
+    userScrolledUp.current = !isNearBottom();
+  };
+  
+  // Scroll to bottom when messages change (only if user hasn't scrolled up)
   useEffect(() => {
-    const scrollTimer = setInterval(() => {
+    if (!userScrolledUp.current) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, 100);
-    
-    // Clear interval when not loading
-    if (!isLoading) {
-      clearInterval(scrollTimer);
     }
-    
-    return () => clearInterval(scrollTimer);
+  }, [messages]);
+  
+  // When loading starts, reset scroll tracking
+  useEffect(() => {
+    if (isLoading) {
+      // Only auto-scroll if user is near bottom when loading starts
+      if (isNearBottom()) {
+        userScrolledUp.current = false;
+      }
+    }
   }, [isLoading]);
 
   // Finalize conversation on app close
@@ -675,7 +690,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport }: ChatWindowProps) {
                 <div key={agentId} className="relative group/agent flex items-center">
                   <motion.button
                     onClick={() => cycleAgentMode(agentId)}
-                    className={`relative w-6 h-6 rounded-full overflow-hidden transition-all ${
+                    className={`relative w-6 h-6 rounded-full overflow-visible transition-all ${
                       isActive 
                         ? 'opacity-100' 
                         : 'opacity-40 grayscale hover:opacity-60'
@@ -683,11 +698,23 @@ export function ChatWindow({ onOpenSettings, onOpenReport }: ChatWindowProps) {
                     whileHover={{ scale: 1.08 }}
                     whileTap={{ scale: 0.92 }}
                   >
-                    <img 
-                      src={agent.avatar} 
-                      alt={agent.name}
-                      className="w-full h-full object-cover"
-                    />
+                    <div className="w-full h-full rounded-full overflow-hidden">
+                      <img 
+                        src={agent.avatar} 
+                        alt={agent.name}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    {/* Disco mode sparkle - top right */}
+                    {isDisco && (
+                      <motion.div
+                        className="absolute -top-1 -right-1 z-20"
+                        animate={{ rotate: [0, 15, -15, 0], scale: [1, 1.1, 1] }}
+                        transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+                      >
+                        <Sparkles className="w-3 h-3 text-amber-400" strokeWidth={2.5} />
+                      </motion.div>
+                    )}
                     {/* Active indicator dot - bottom right, overlapping */}
                     {isActive && (
                       <motion.div
@@ -788,7 +815,11 @@ export function ChatWindow({ onOpenSettings, onOpenReport }: ChatWindowProps) {
       </header>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 pb-24">
+      <div 
+        ref={messagesContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto px-4 py-4 pb-24"
+      >
         {messages.length === 0 && !isLoading && (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <p className="text-ash text-sm font-mono flex items-center gap-1">
