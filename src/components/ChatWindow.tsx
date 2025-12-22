@@ -234,13 +234,8 @@ export function ChatWindow({ onOpenSettings, onOpenReport }: ChatWindowProps) {
     const content = inputValue.trim();
     if (!content || !currentConversation) return;
     
-    // Allow interruption during agent responses (not during initial routing)
-    if (isLoading && thinkingPhase === 'routing') {
-      // Can't interrupt during routing phase - wait
-      return;
-    }
-    
     // If already loading (agents responding), trigger interruption
+    // User can always interrupt - the current typing agent finishes, thinking ones stop
     if (isLoading) {
       shouldCancelDebate.current = true;
       pendingMessage.current = content;
