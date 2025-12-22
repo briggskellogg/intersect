@@ -1189,11 +1189,13 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
           {/* Microphone button - voice transcription */}
           <motion.button
             onClick={toggleTranscription}
-            className={`flex items-center gap-1.5 px-2 py-2 rounded-lg cursor-pointer transition-colors duration-300 ${
+            className={`flex items-center gap-1.5 px-2 py-2 rounded-lg cursor-pointer ${
               isTranscribing || isConnecting
                 ? 'text-amber-400' 
                 : 'text-ash/50 hover:text-ash'
             }`}
+            animate={isConnecting ? { opacity: [0.6, 1, 0.6] } : { opacity: 1 }}
+            transition={isConnecting ? { duration: 1.5, repeat: Infinity, ease: 'easeInOut' } : { duration: 0.2 }}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             title={isTranscribing ? 'Stop transcription (⌘S)' : isConnecting ? 'Connecting...' : 'Start voice transcription (⌘S)'}
