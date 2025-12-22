@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ExternalLink, Loader2, Trash2, Check, AlertCircle, Circle } from 'lucide-react';
+import { ExternalLink, Loader2, Trash2, Check, AlertCircle, Circle, Mic } from 'lucide-react';
 import { saveApiKey, saveAnthropicKey, removeApiKey, removeAnthropicKey, getUserProfile } from '../hooks/useTauri';
+import { useAppStore } from '../store';
 import governorIcon from '../assets/governor-transparent.png';
 import instinctAvatar from '../assets/agents/instinct.png';
 import logicAvatar from '../assets/agents/logic.png';
@@ -12,18 +13,24 @@ interface ApiKeyModalProps {
   onComplete: () => void;
   initialOpenAiKey?: string | null;
   initialAnthropicKey?: string | null;
+  initialElevenLabsKey?: string | null;
 }
 
 type KeyStatus = 'none' | 'connected' | 'error';
 
-export function ApiKeyModal({ isOpen, onComplete, initialOpenAiKey, initialAnthropicKey }: ApiKeyModalProps) {
+export function ApiKeyModal({ isOpen, onComplete, initialOpenAiKey, initialAnthropicKey, initialElevenLabsKey }: ApiKeyModalProps) {
   const [openAiKey, setOpenAiKey] = useState('');
   const [anthropicKey, setAnthropicKey] = useState('');
+  const [elevenLabsKey, setElevenLabsKey] = useState('');
   const [openAiStatus, setOpenAiStatus] = useState<KeyStatus>(initialOpenAiKey ? 'connected' : 'none');
   const [anthropicStatus, setAnthropicStatus] = useState<KeyStatus>(initialAnthropicKey ? 'connected' : 'none');
+  const [elevenLabsStatus, setElevenLabsStatus] = useState<KeyStatus>(initialElevenLabsKey ? 'connected' : 'none');
   const [isLoadingOpenAi, setIsLoadingOpenAi] = useState(false);
   const [isLoadingAnthropic, setIsLoadingAnthropic] = useState(false);
+  const [isLoadingElevenLabs, setIsLoadingElevenLabs] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  const { elevenLabsApiKey, setElevenLabsApiKey } = useAppStore();
 
   // Reload status on open
   useEffect(() => {
@@ -32,8 +39,10 @@ export function ApiKeyModal({ isOpen, onComplete, initialOpenAiKey, initialAnthr
         setOpenAiStatus(profile.apiKey ? 'connected' : 'none');
         setAnthropicStatus(profile.anthropicKey ? 'connected' : 'none');
       });
+      // ElevenLabs status from store
+      setElevenLabsStatus(elevenLabsApiKey ? 'connected' : 'none');
     }
-  }, [isOpen]);
+  }, [isOpen, elevenLabsApiKey]);
 
   const handleSaveOpenAi = async () => {
     const trimmedKey = openAiKey.trim();
@@ -91,6 +100,31 @@ export function ApiKeyModal({ isOpen, onComplete, initialOpenAiKey, initialAnthr
   const handleRemoveAnthropic = async () => {
     await removeAnthropicKey();
     setAnthropicStatus('none');
+  };
+
+  const handleSaveElevenLabs = async () => {
+    const trimmedKey = elevenLabsKey.trim();
+    if (!trimmedKey) return;
+    
+    setIsLoadingElevenLabs(true);
+    setError(null);
+    
+    try {
+      // Store in Zustand (persisted locally, not in backend)
+      setElevenLabsApiKey(trimmedKey);
+      setElevenLabsStatus('connected');
+      setElevenLabsKey('');
+      setIsLoadingElevenLabs(false);
+    } catch (err) {
+      setError(`ElevenLabs: ${err instanceof Error ? err.message : String(err)}`);
+      setElevenLabsStatus('error');
+      setIsLoadingElevenLabs(false);
+    }
+  };
+
+  const handleRemoveElevenLabs = () => {
+    setElevenLabsApiKey(null);
+    setElevenLabsStatus('none');
   };
 
   const handleDone = () => {
@@ -294,6 +328,64 @@ export function ApiKeyModal({ isOpen, onComplete, initialOpenAiKey, initialAnthr
                 )}
                 <p className="mt-2.5 text-[10px] text-ash/50 font-mono flex items-center gap-1">
                   <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" className="text-psyche/70 hover:text-psyche transition-colors inline-flex items-center gap-1">
+                    <ExternalLink className="w-2.5 h-2.5" />
+                    Get your API key
+                  </a>
+                </p>
+              </div>
+
+              {/* ElevenLabs Section (Optional) */}
+              <div className={`p-4 rounded-xl border transition-all ${
+                elevenLabsStatus === 'connected' 
+                  ? 'bg-emerald-500/5 border-emerald-500/30' 
+                  : elevenLabsStatus === 'error'
+                  ? 'bg-red-500/5 border-red-500/30'
+                  : 'bg-charcoal/30 border-smoke/30'
+              }`}>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-7 h-7 rounded-full bg-aurora/20 flex items-center justify-center">
+                      <Mic className="w-4 h-4 text-aurora" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-sans text-pearl font-medium">ElevenLabs <span className="text-ash/50 font-mono text-[10px]">(optional)</span></h3>
+                      <p className="text-[10px] text-ash/60 font-mono">Voice transcription</p>
+                    </div>
+                  </div>
+                  <StatusIndicator status={elevenLabsStatus} isLoading={isLoadingElevenLabs} />
+                </div>
+                
+                {elevenLabsStatus === 'connected' ? (
+                  <button
+                    onClick={handleRemoveElevenLabs}
+                    className="w-full px-3 py-2 text-xs font-mono text-ash/60 hover:text-red-400 border border-smoke/30 hover:border-red-400/50 rounded-lg transition-all flex items-center justify-center gap-2"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    Remove Key
+                  </button>
+                ) : (
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      value={elevenLabsKey}
+                      onChange={(e) => { setElevenLabsKey(e.target.value); setError(null); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && elevenLabsKey.trim() && !isLoadingElevenLabs) handleSaveElevenLabs(); }}
+                      placeholder="xi-..."
+                      className="flex-1 px-3 py-2.5 bg-obsidian/50 border border-smoke/40 rounded-lg text-pearl placeholder-ash/40 font-mono text-xs focus:outline-none focus:border-aurora/50 transition-colors"
+                    />
+                    <button
+                      onClick={handleSaveElevenLabs}
+                      disabled={isLoadingElevenLabs || !elevenLabsKey.trim()}
+                      className="px-4 py-2.5 text-xs font-mono font-medium rounded-lg disabled:opacity-40 transition-all flex items-center gap-2 bg-pearl text-void hover:bg-pearl/90 cursor-pointer"
+                    >
+                      {isLoadingElevenLabs && <Loader2 className="w-3 h-3 animate-spin" />}
+                      {isLoadingElevenLabs ? 'Saving' : 'Save'}
+                      <kbd className="px-1 py-0.5 bg-void/20 rounded text-[9px] font-mono">↵</kbd>
+                    </button>
+                  </div>
+                )}
+                <p className="mt-2.5 text-[10px] text-ash/50 font-mono flex items-center gap-1">
+                  <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noopener noreferrer" className="text-aurora/70 hover:text-aurora transition-colors inline-flex items-center gap-1">
                     <ExternalLink className="w-2.5 h-2.5" />
                     Get your API key
                   </a>

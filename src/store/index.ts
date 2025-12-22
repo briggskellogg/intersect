@@ -66,6 +66,10 @@ interface AppState {
   // Floating mode
   isFloatingMode: boolean;
   setFloatingMode: (floating: boolean) => void;
+  
+  // ElevenLabs API key (for voice transcription)
+  elevenLabsApiKey: string | null;
+  setElevenLabsApiKey: (key: string | null) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -211,4 +215,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Floating mode
   isFloatingMode: false,
   setFloatingMode: (isFloatingMode) => set({ isFloatingMode }),
+  
+  // ElevenLabs API key (for voice transcription)
+  elevenLabsApiKey: null,
+  setElevenLabsApiKey: (elevenLabsApiKey) => set({ elevenLabsApiKey }),
 }));

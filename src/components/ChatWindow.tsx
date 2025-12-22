@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { confirm } from '@tauri-apps/plugin-dialog';
-import { MessageSquarePlus, PartyPopper, ExternalLink, ShieldCheck, X, Minus, Square } from 'lucide-react';
+import { MessageSquarePlus, PartyPopper, ShieldCheck, X, Minus, Square, Mic } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { ProfileSwitcher } from './ProfileSwitcher';
@@ -18,6 +18,7 @@ import {
   recoverConversations,
   InitResult,
 } from '../hooks/useTauri';
+import { useScribeTranscription } from '../hooks/useScribeTranscription';
 import { v4 as uuidv4 } from 'uuid';
 import governorIcon from '../assets/governor.png';
 import bekLogo from '../assets/BEK.png';
@@ -59,7 +60,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
   // Count active agents for Governor logic (on or disco = active)
   const activeCount = Object.values(agentModes).filter(m => m !== 'off').length;
   
-  const { activePersonaProfile } = useAppStore();
+  const { activePersonaProfile, elevenLabsApiKey } = useAppStore();
   
   // Get dominant trait from active persona profile
   const dominantAgent: AgentType = activePersonaProfile?.dominantTrait || 'logic';
@@ -71,6 +72,30 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
   const hasInitialized = useRef(false);
   const shouldCancelDebate = useRef(false); // For user interruption during multi-turn debates
   const pendingMessage = useRef<string | null>(null); // Queue user's interrupting message
+  
+  // Voice transcription
+  const {
+    isTranscribing,
+    transcript,
+    partialTranscript,
+    start: startTranscription,
+    stop: stopTranscription,
+    clearTranscript,
+  } = useScribeTranscription({
+    apiKey: elevenLabsApiKey || '',
+    onError: (err) => setError(err.message),
+  });
+  
+  // Sync transcript to input when committed
+  useEffect(() => {
+    if (transcript) {
+      setInputValue(prev => {
+        const separator = prev.trim() ? ' ' : '';
+        return prev + separator + transcript;
+      });
+      clearTranscript();
+    }
+  }, [transcript, clearTranscript]);
 
   // Reset initialization when profile changes
   const prevProfileId = useRef<string | null>(null);
@@ -278,6 +303,24 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
     }
   }, [recoveryNeeded, onRecoveryComplete]);
 
+  // Toggle transcription handler
+  const toggleTranscription = useCallback(async () => {
+    if (!elevenLabsApiKey) {
+      setGovernorNotification('Set your ElevenLabs API key in Settings to use voice transcription.');
+      return;
+    }
+    
+    if (isTranscribing) {
+      stopTranscription();
+    } else {
+      try {
+        await startTranscription();
+      } catch (err) {
+        console.error('Failed to start transcription:', err);
+      }
+    }
+  }, [elevenLabsApiKey, isTranscribing, startTranscription, stopTranscription, setGovernorNotification]);
+  
   // Global keyboard shortcuts (Command + key)
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
@@ -292,10 +335,39 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
             e.preventDefault();
             onOpenSettings(); // Open Profile modal
             break;
-          case 'r':
+          case 'g':
             e.preventDefault();
             onOpenReport(); // Open The Governor (report)
             break;
+          case 'd':
+            e.preventDefault();
+            toggleAllDisco(); // Toggle Disco Mode
+            break;
+          case 's':
+            e.preventDefault();
+            toggleTranscription(); // Toggle voice transcription
+            break;
+          case '1':
+            e.preventDefault();
+            cycleAgentMode('instinct'); // Toggle Snap
+            break;
+          case '2':
+            e.preventDefault();
+            cycleAgentMode('logic'); // Toggle Dot
+            break;
+          case '3':
+            e.preventDefault();
+            cycleAgentMode('psyche'); // Toggle Puff
+            break;
+        }
+        
+        // Cmd+Enter: Send and stop transcription
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (isTranscribing) {
+            stopTranscription();
+          }
+          handleSend();
         }
       }
       
@@ -310,7 +382,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
     
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [onOpenReport]);
+  }, [onOpenReport, toggleAllDisco, cycleAgentMode, toggleTranscription, isTranscribing, stopTranscription]);
 
   // Handle send message
   const handleSend = async () => {
@@ -742,11 +814,12 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
           
           {/* Agent toggles - in a pill container */}
           <div className="flex items-center gap-1.5 bg-charcoal/60 rounded-full px-2 py-1.5 border border-smoke/30">
-            {AGENT_ORDER.map((agentId) => {
+            {AGENT_ORDER.map((agentId, index) => {
               const agent = AGENTS[agentId];
               const mode = agentModes[agentId];
               const isActive = mode !== 'off';
               const isDisco = mode === 'disco';
+              const hotkeyNum = index + 1;
               
               const greetings: Record<AgentType, string> = {
                 instinct: "I'm Snap. I trust my gut and help you cut through the noise with quick, intuitive reads.",
@@ -763,7 +836,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
               const modeLabel = mode === 'off' ? 'Off' : mode === 'on' ? 'On' : 'Disco Mode';
               
               return (
-                <div key={agentId} className="relative group/agent flex items-center">
+                <div key={agentId} className="relative group/agent flex items-center gap-1">
                   <motion.button
                     onClick={() => cycleAgentMode(agentId)}
                     className={`relative w-5 h-5 rounded-full overflow-visible transition-all ${
@@ -773,6 +846,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
                     } cursor-pointer`}
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.9 }}
+                    title={`Toggle ${agent.name} (⌘${hotkeyNum})`}
                   >
                     <div className="w-full h-full rounded-full overflow-hidden">
                       <img 
@@ -801,6 +875,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
                       />
                     )}
                   </motion.button>
+                  <kbd className="text-[8px] font-mono text-ash/40">{hotkeyNum}</kbd>
                   
                   {/* Hover tooltip */}
                   <div 
@@ -838,6 +913,50 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
               );
             })}
           </div>
+          
+          {/* Disco Mode toggle - next to agents */}
+          {(() => {
+            const activeAgents = Object.entries(agentModes).filter(([, mode]) => mode !== 'off');
+            const discoCount = activeAgents.filter(([, mode]) => mode === 'disco').length;
+            const discoState: 'off' | 'partial' | 'on' = 
+              discoCount === 0 ? 'off' : 
+              discoCount === activeAgents.length ? 'on' : 'partial';
+            
+            return (
+              <div className="relative group/disco">
+                <motion.button
+                  onClick={toggleAllDisco}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg transition-all cursor-pointer ${
+                    discoState === 'on'
+                      ? 'bg-amber-500/20 border border-amber-500/50 text-amber-400'
+                      : discoState === 'partial'
+                        ? 'bg-amber-500/10 text-amber-500/70'
+                        : 'text-ash/50 hover:text-ash hover:bg-smoke/20'
+                  }`}
+                  style={discoState === 'partial' ? {
+                    border: '1px dashed rgba(234, 179, 8, 0.4)',
+                  } : undefined}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  title={discoState === 'on' ? 'Disable Disco Mode (⌘D)' : 'Enable Disco Mode (⌘D)'}
+                >
+                  <PartyPopper 
+                    className={`w-4 h-4 ${discoState === 'partial' ? 'opacity-70' : ''}`} 
+                    strokeWidth={1.5}
+                  />
+                  <kbd className="text-[8px] font-mono text-ash/40">D</kbd>
+                </motion.button>
+                
+                {/* Disco Mode tooltip */}
+                <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 w-[220px] px-3 py-2.5 bg-obsidian/95 border border-amber-500/30 rounded-xl opacity-0 invisible group-hover/disco:opacity-100 group-hover/disco:visible transition-all shadow-xl z-50">
+                  <h4 className="text-xs font-sans font-medium text-amber-500 mb-1">Disco Mode</h4>
+                  <p className="text-[10px] text-silver/80 font-mono leading-relaxed">
+                    Intense, opinionated responses. More visceral and challenging.
+                  </p>
+                </div>
+              </div>
+            );
+          })()}
         </div>
         
         {/* Centered logo */}
@@ -860,7 +979,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
           <button
             onClick={onOpenReport}
             className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-smoke/20 transition-all cursor-pointer group/governor"
-            title="The Governor (⌘R)"
+            title="The Governor (⌘G)"
           >
             {/* Governor icon - round with flashing yellow border when routing */}
             <div className="relative w-6 h-6">
@@ -885,7 +1004,33 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
                 <img src={governorIcon} alt="Governor" className="w-full h-full object-cover" />
               </div>
             </div>
-            <kbd className="p-1 bg-smoke/30 rounded text-[10px] font-mono text-ash/60 border border-smoke/40 leading-none aspect-square flex items-center justify-center">⌘R</kbd>
+            <kbd className="p-1 bg-smoke/30 rounded text-[10px] font-mono text-ash/60 border border-smoke/40 leading-none aspect-square flex items-center justify-center">⌘G</kbd>
+          </button>
+          
+          {/* Microphone - voice transcription */}
+          <button
+            onClick={toggleTranscription}
+            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-all cursor-pointer ${
+              isTranscribing 
+                ? 'bg-emerald-500/20 border border-emerald-500/50 text-emerald-400' 
+                : elevenLabsApiKey 
+                  ? 'hover:bg-smoke/20 text-ash/60 hover:text-ash'
+                  : 'opacity-40 text-ash/40'
+            }`}
+            title={isTranscribing ? 'Stop transcription (⌘S)' : 'Start voice transcription (⌘S)'}
+          >
+            <div className="relative">
+              <Mic className="w-4 h-4" strokeWidth={1.5} />
+              {/* Pulsing dot when transcribing */}
+              {isTranscribing && (
+                <motion.div
+                  className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400"
+                  animate={{ opacity: [0.5, 1, 0.5], scale: [0.9, 1.1, 0.9] }}
+                  transition={{ duration: 1, repeat: Infinity, ease: 'easeInOut' }}
+                />
+              )}
+            </div>
+            <kbd className="p-1 bg-smoke/30 rounded text-[10px] font-mono text-ash/60 border border-smoke/40 leading-none aspect-square flex items-center justify-center">⌘S</kbd>
           </button>
         </div>
       </header>
@@ -927,25 +1072,48 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Floating Input with Agent Toggles */}
+      {/* Floating Input */}
       <div className="absolute bottom-3 left-1/2 -translate-x-1/2 w-3/4 max-w-5xl">
+        {/* Transcription overlay - shows partial transcript while speaking */}
+        <AnimatePresence>
+          {isTranscribing && partialTranscript && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              className="mb-2 px-4 py-2 bg-emerald-500/10 border border-emerald-500/30 rounded-xl backdrop-blur-sm"
+            >
+              <div className="flex items-center gap-2">
+                <motion.div
+                  className="w-2 h-2 rounded-full bg-emerald-400"
+                  animate={{ opacity: [0.5, 1, 0.5] }}
+                  transition={{ duration: 1, repeat: Infinity }}
+                />
+                <span className="text-sm font-mono text-emerald-300/80 italic">{partialTranscript}</span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        
         <div className="flex items-center gap-3">
           {/* Floating chat input */}
-          <div className="flex-1 bg-charcoal/80 backdrop-blur-xl rounded-2xl border border-smoke/30 transition-all relative flex items-center shadow-2xl">
-            {/* User identity indicator on left with pulsing gold border */}
+          <div className={`flex-1 bg-charcoal/80 backdrop-blur-xl rounded-2xl border transition-all relative flex items-center shadow-2xl ${
+            isTranscribing ? 'border-emerald-500/50' : 'border-smoke/30'
+          }`}>
+            {/* User identity indicator on left with pulsing border */}
             <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center gap-2 pointer-events-none">
               <div className="relative">
-                {/* Subtle pulsing gold ring - never fully fades */}
+                {/* Pulsing ring - green when transcribing, gold otherwise */}
                 <motion.div
                   className="absolute inset-0 rounded-full"
                   style={{ 
-                    boxShadow: '0 0 0 2px #EAB308',
+                    boxShadow: isTranscribing ? '0 0 0 2px #22C55E' : '0 0 0 2px #EAB308',
                   }}
                   animate={{ 
                     opacity: [0.65, 0.9, 0.65],
                   }}
                   transition={{ 
-                    duration: 3,
+                    duration: isTranscribing ? 1 : 3,
                     repeat: Infinity,
                     ease: 'easeInOut',
                   }}
@@ -955,6 +1123,14 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
                   alt="You"
                   className="w-7 h-7 rounded-full relative z-10"
                 />
+                {/* Transcription indicator dot - bottom right of avatar */}
+                {isTranscribing && (
+                  <motion.div
+                    className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border border-charcoal z-20"
+                    animate={{ opacity: [0.6, 1, 0.6], scale: [0.9, 1.1, 0.9] }}
+                    transition={{ duration: 1, repeat: Infinity, ease: 'easeInOut' }}
+                  />
+                )}
               </div>
             </div>
             
@@ -977,11 +1153,17 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
               style={{ boxShadow: 'none', minHeight: '48px', maxHeight: '84px' }}
             />
             {/* Placeholder with styled slash */}
-            {!inputValue && (
+            {!inputValue && !isTranscribing && (
               <div className="absolute left-16 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none">
                 <span className="text-ash/40 font-mono text-sm">Press</span>
                 <kbd className="p-1 bg-smoke/30 rounded-md text-ash/60 font-mono text-xs border border-smoke/40 aspect-square flex items-center justify-center">/</kbd>
                 <span className="text-ash/40 font-mono text-sm">to chat</span>
+              </div>
+            )}
+            {/* Transcribing placeholder */}
+            {!inputValue && isTranscribing && (
+              <div className="absolute left-16 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none">
+                <span className="text-emerald-400/60 font-mono text-sm">Listening...</span>
               </div>
             )}
             {/* Enter hint on right side */}
@@ -989,59 +1171,6 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
               <kbd className="px-1.5 py-0.5 bg-smoke/30 rounded-md text-ash/50 font-mono text-[10px] border border-smoke/40">↵ ENT</kbd>
             </div>
           </div>
-          
-          {/* Disco Mode toggle */}
-          {(() => {
-            const activeAgents = Object.entries(agentModes).filter(([, mode]) => mode !== 'off');
-            const discoCount = activeAgents.filter(([, mode]) => mode === 'disco').length;
-            const discoState: 'off' | 'partial' | 'on' = 
-              discoCount === 0 ? 'off' : 
-              discoCount === activeAgents.length ? 'on' : 'partial';
-            
-            return (
-              <div className="relative group/disco">
-                <motion.button
-                  onClick={toggleAllDisco}
-                  className={`p-2 rounded-lg transition-all cursor-pointer ${
-                    discoState === 'on'
-                      ? 'bg-amber-500/20 border border-amber-500/50 text-amber-400'
-                      : discoState === 'partial'
-                        ? 'bg-amber-500/10 text-amber-500/70'
-                        : 'bg-charcoal/60 border border-smoke/30 text-ash/50 hover:text-ash hover:border-smoke/50'
-                  }`}
-                  style={discoState === 'partial' ? {
-                    border: '1px dashed rgba(234, 179, 8, 0.4)',
-                  } : undefined}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  title={discoState === 'on' ? 'Disable Disco Mode for all' : 'Enable Disco Mode for all'}
-                >
-                  <PartyPopper 
-                    className={`w-5 h-5 ${discoState === 'partial' ? 'opacity-70' : ''}`} 
-                    strokeWidth={1.5}
-                  />
-                </motion.button>
-                
-                {/* Disco Mode tooltip */}
-                <div className="absolute bottom-full mb-2 right-0 w-[240px] px-3 py-2.5 bg-obsidian/95 border border-amber-500/30 rounded-xl opacity-0 invisible group-hover/disco:opacity-100 group-hover/disco:visible transition-all shadow-xl z-50">
-                  <h4 className="text-xs font-sans font-medium text-amber-500 mb-1">Disco Mode</h4>
-                  <p className="text-[10px] text-silver/80 font-mono leading-relaxed">
-                    Activate for an intense, opinionated experience. 
-                    Responses become more visceral, concise, and challenging.
-                  </p>
-                  <a 
-                    href="https://discoelysium.com" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-[9px] text-amber-500/60 hover:text-amber-500 font-mono transition-colors mt-1.5 cursor-pointer"
-                  >
-                    <ExternalLink className="w-2.5 h-2.5" strokeWidth={1.5} />
-                    Inspired by Disco Elysium
-                  </a>
-                </div>
-              </div>
-            );
-          })()}
         </div>
         
         {/* Privacy notice */}
