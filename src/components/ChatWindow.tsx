@@ -1083,9 +1083,9 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
                   className="absolute bottom-full mb-2 left-0 right-0 px-4 py-2.5 bg-charcoal/80 backdrop-blur-xl border rounded-2xl shadow-2xl"
                   style={{ borderColor: 'rgba(234, 179, 8, 0.3)' }}
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-start gap-2">
                     <motion.div
-                      className="w-2 h-2 rounded-full"
+                      className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5"
                       style={{ backgroundColor: '#EAB308' }}
                       animate={{ opacity: [0.5, 1, 0.5] }}
                       transition={{ duration: 1, repeat: Infinity }}
@@ -1098,16 +1098,16 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
             
             {/* Floating chat input */}
             <div className={`bg-charcoal/80 backdrop-blur-xl rounded-2xl border transition-all relative flex items-center shadow-2xl overflow-hidden ${
-              isTranscribing ? 'border-emerald-500/50' : 'border-smoke/30'
+              isTranscribing ? 'border-amber-500/50' : 'border-smoke/30'
             }`}>
             {/* User identity indicator on left with pulsing border */}
             <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center gap-2 pointer-events-none">
               <div className="relative">
-                {/* Pulsing ring - green when transcribing, gold otherwise */}
+                {/* Pulsing ring - amber when transcribing, gold otherwise */}
                 <motion.div
                   className="absolute inset-0 rounded-full"
                   style={{ 
-                    boxShadow: isTranscribing ? '0 0 0 2px #22C55E' : '0 0 0 2px #EAB308',
+                    boxShadow: '0 0 0 2px #EAB308',
                   }}
                   animate={{ 
                     opacity: [0.65, 0.9, 0.65],
@@ -1163,12 +1163,13 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
             {/* Transcribing placeholder - animated */}
             {!inputValue && isTranscribing && (
               <div className="absolute left-16 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none">
-                <span className="text-emerald-400/60 font-mono text-sm">Listening</span>
+                <span className="font-mono text-sm" style={{ color: 'rgba(234, 179, 8, 0.6)' }}>Listening</span>
                 <span className="flex gap-0.5">
                   {[0, 1, 2].map((i) => (
                     <motion.span
                       key={i}
-                      className="text-emerald-400/60 font-mono text-sm"
+                      className="font-mono text-sm"
+                      style={{ color: 'rgba(234, 179, 8, 0.6)' }}
                       animate={{ opacity: [0.3, 1, 0.3] }}
                       transition={{ duration: 1, repeat: Infinity, delay: i * 0.2, ease: 'easeInOut' }}
                     >
@@ -1189,11 +1190,9 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
           <motion.button
             onClick={toggleTranscription}
             className={`flex items-center gap-1.5 px-2 py-2 rounded-lg cursor-pointer transition-colors duration-300 ${
-              isTranscribing 
-                ? 'text-emerald-400' 
-                : isConnecting
-                  ? 'text-amber-400'
-                  : 'text-ash/50 hover:text-ash'
+              isTranscribing || isConnecting
+                ? 'text-amber-400' 
+                : 'text-ash/50 hover:text-ash'
             }`}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
@@ -1201,11 +1200,11 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
           >
             <div className="relative">
               <Mic className="w-5 h-5" strokeWidth={1.5} />
-              {/* Green dot only when connected (not during connecting) */}
+              {/* Amber dot when connected (not during connecting) */}
               {isTranscribing && (
                 <div 
-                  className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-400"
-                  style={{ animation: 'pulse-opacity 1s ease-in-out infinite' }}
+                  className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full"
+                  style={{ backgroundColor: '#EAB308', animation: 'pulse-opacity 1s ease-in-out infinite' }}
                 />
               )}
             </div>
