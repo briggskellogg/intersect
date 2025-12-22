@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { confirm } from '@tauri-apps/plugin-dialog';
-import { MessageSquarePlus, Sparkles, ExternalLink, ShieldCheck, X, Minus, Square } from 'lucide-react';
+import { MessageSquarePlus, PartyPopper, ExternalLink, ShieldCheck, X, Minus, Square } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { ProfileSwitcher } from './ProfileSwitcher';
@@ -15,6 +15,8 @@ import {
   getConversationOpener,
   getUserProfile,
   finalizeConversation,
+  recoverConversations,
+  InitResult,
 } from '../hooks/useTauri';
 import { v4 as uuidv4 } from 'uuid';
 import governorIcon from '../assets/governor.png';
@@ -24,9 +26,11 @@ import { GovernorNotification } from './GovernorNotification';
 interface ChatWindowProps {
   onOpenSettings: () => void;
   onOpenReport: () => void;
+  recoveryNeeded?: InitResult | null;
+  onRecoveryComplete?: () => void;
 }
 
-export function ChatWindow({ onOpenSettings, onOpenReport }: ChatWindowProps) {
+export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRecoveryComplete }: ChatWindowProps) {
   const {
     messages,
     addMessage,
@@ -237,6 +241,33 @@ export function ChatWindow({ onOpenSettings, onOpenReport }: ChatWindowProps) {
       return () => clearTimeout(timer);
     }
   }, [debateMode, setDebateMode]);
+
+  // Handle recovery of orphaned conversations from crashes/force-quits
+  useEffect(() => {
+    if (recoveryNeeded && recoveryNeeded.status === 'recovery_needed' && recoveryNeeded.recoveredCount > 0) {
+      const runRecovery = async () => {
+        const count = recoveryNeeded.recoveredCount;
+        setGovernorNotification(
+          `Recovering ${count} conversation${count > 1 ? 's' : ''} from last session...`
+        );
+        
+        try {
+          await recoverConversations();
+          setGovernorNotification(
+            `Memory updated with ${count} recovered conversation${count > 1 ? 's' : ''}.`
+          );
+        } catch (err) {
+          console.error('Failed to recover conversations:', err);
+          setGovernorNotification('Failed to recover some conversations.');
+        }
+        
+        // Clear recovery state
+        onRecoveryComplete?.();
+      };
+      
+      runRecovery();
+    }
+  }, [recoveryNeeded, onRecoveryComplete]);
 
   // Global keyboard shortcuts (Command + key)
   useEffect(() => {
@@ -748,7 +779,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport }: ChatWindowProps) {
                         animate={{ rotate: [0, 15, -15, 0], scale: [1, 1.1, 1] }}
                         transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
                       >
-                        <Sparkles className="w-2.5 h-2.5 text-amber-400" strokeWidth={2.5} />
+                        <PartyPopper className="w-2.5 h-2.5 text-amber-400" strokeWidth={2.5} />
                       </motion.div>
                     )}
                     {/* Active indicator dot - bottom right, overlapping */}
@@ -976,7 +1007,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport }: ChatWindowProps) {
                   whileTap={{ scale: 0.95 }}
                   title={discoState === 'on' ? 'Disable Disco Mode for all' : 'Enable Disco Mode for all'}
                 >
-                  <Sparkles 
+                  <PartyPopper 
                     className={`w-5 h-5 ${discoState === 'partial' ? 'opacity-70' : ''}`} 
                     strokeWidth={1.5}
                   />

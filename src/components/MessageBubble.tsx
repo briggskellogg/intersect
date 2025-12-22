@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
-import { Sparkles } from 'lucide-react';
+import { PartyPopper } from 'lucide-react';
 import { Message, AgentType } from '../types';
 import { AGENTS, USER_PROFILES, GOVERNOR } from '../constants/agents';
 import { useAppStore } from '../store';
@@ -107,7 +107,7 @@ export function MessageBubble({ message, isLatest: _isLatest }: MessageBubblePro
               <div 
                 className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center bg-amber-500 z-10"
               >
-                <Sparkles className="w-2.5 h-2.5 text-obsidian" strokeWidth={2.5} />
+                <PartyPopper className="w-2.5 h-2.5 text-obsidian" strokeWidth={2.5} />
               </div>
             )}
           </div>

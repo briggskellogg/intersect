@@ -5,7 +5,7 @@ import { ApiKeyModal } from './components/ApiKeyModal';
 import { ChatWindow } from './components/ChatWindow';
 import { Settings } from './components/Settings';
 import { ReportModal } from './components/ReportModal';
-import { initApp, getUserProfile, getActivePersonaProfile } from './hooks/useTauri';
+import { initApp, getUserProfile, getActivePersonaProfile, InitResult } from './hooks/useTauri';
 import { AGENTS } from './constants/agents';
 
 function App() {
@@ -20,6 +20,7 @@ function App() {
   const [needsApiKey, setNeedsApiKey] = useState(false);
   const [isReportOpen, setReportOpen] = useState(false);
   const [showApiModalFromReport, setShowApiModalFromReport] = useState(false);
+  const [recoveryNeeded, setRecoveryNeeded] = useState<InitResult | null>(null);
 
   // Open report modal (closes settings first)
   const handleOpenReport = () => {
@@ -34,10 +35,16 @@ function App() {
       fetch('http://127.0.0.1:7242/ingest/962f7550-5ed1-4eac-a6be-f678c82650b8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:init-start',message:'Init started',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
       // #endregion
       try {
-        await initApp();
+        const initResult = await initApp();
         // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/962f7550-5ed1-4eac-a6be-f678c82650b8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:after-initApp',message:'initApp completed',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7242/ingest/962f7550-5ed1-4eac-a6be-f678c82650b8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:after-initApp',message:'initApp completed',data:{initResult},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
         // #endregion
+        
+        // Check if recovery is needed from a previous crash/force-quit
+        if (initResult.status === 'recovery_needed') {
+          setRecoveryNeeded(initResult);
+        }
+        
         const profile = await getUserProfile();
         // #region agent log
         fetch('http://127.0.0.1:7242/ingest/962f7550-5ed1-4eac-a6be-f678c82650b8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:after-getUserProfile',message:'getUserProfile completed',data:{hasApiKey:!!profile.apiKey,hasAnthropicKey:!!profile.anthropicKey},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
@@ -140,6 +147,8 @@ function App() {
       <ChatWindow 
         onOpenSettings={() => setSettingsOpen(true)} 
         onOpenReport={handleOpenReport}
+        recoveryNeeded={recoveryNeeded}
+        onRecoveryComplete={() => setRecoveryNeeded(null)}
       />
 
       {/* API Key modal overlays the chat when needed */}

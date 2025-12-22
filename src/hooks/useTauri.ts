@@ -1,9 +1,28 @@
 import { invoke } from '@tauri-apps/api/core';
 import { UserProfile, Message, Conversation, UserContext, SendMessageResult, AgentType, PersonaProfile } from '../types';
 
-// Initialize app
-export async function initApp(): Promise<void> {
-  await invoke('init_app');
+// App initialization result
+export interface InitResult {
+  status: 'ready' | 'recovery_needed';
+  recoveredCount: number;
+}
+
+// Initialize app - returns info about any conversations needing recovery
+export async function initApp(): Promise<InitResult> {
+  const result = await invoke<{
+    status: string;
+    recovered_count: number;
+  }>('init_app');
+  
+  return {
+    status: result.status as 'ready' | 'recovery_needed',
+    recoveredCount: result.recovered_count,
+  };
+}
+
+// Recover and finalize any orphaned conversations from crashes/force-quits
+export async function recoverConversations(): Promise<number> {
+  return invoke<number>('recover_conversations');
 }
 
 // User profile

@@ -675,6 +675,49 @@ pub fn get_recent_conversations(limit: usize) -> Result<Vec<Conversation>> {
     })
 }
 
+/// Get conversations that need recovery (unprocessed, have messages, older than 1 min)
+/// Used on startup to finalize conversations from crashes/force-quits
+pub fn get_conversations_needing_recovery() -> Result<Vec<Conversation>> {
+    use chrono::Duration;
+    
+    with_connection(|conn| {
+        // Get conversations that:
+        // 1. Are not processed
+        // 2. Are older than 1 minute (not currently being written to)
+        let cutoff = (Utc::now() - Duration::minutes(1)).to_rfc3339();
+        
+        let mut stmt = conn.prepare(
+            "SELECT c.id, c.title, c.summary, c.limbo_summary, c.processed, c.created_at, c.updated_at,
+                    (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) as msg_count
+             FROM conversations c
+             WHERE c.processed = 0 
+               AND c.updated_at < ?1
+             ORDER BY c.updated_at DESC"
+        )?;
+        
+        let convs = stmt.query_map([cutoff], |row| {
+            let msg_count: i64 = row.get(7)?;
+            // Only include if has at least 2 messages (user + agent)
+            if msg_count >= 2 {
+                Ok(Some(Conversation {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    summary: row.get(2)?,
+                    limbo_summary: row.get(3)?,
+                    processed: row.get::<_, i64>(4)? != 0,
+                    created_at: row.get(5)?,
+                    updated_at: row.get(6)?,
+                }))
+            } else {
+                Ok(None)
+            }
+        })?;
+        
+        // Filter out None values
+        convs.filter_map(|r| r.transpose()).collect()
+    })
+}
+
 /// Append to the limbo summary (incremental summary built during conversation)
 pub fn append_limbo_summary(conversation_id: &str, new_content: &str) -> Result<()> {
     let now = Utc::now().to_rfc3339();

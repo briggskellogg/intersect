@@ -2,6 +2,7 @@ use crate::anthropic::{AnthropicClient, AnthropicMessage, ThinkingBudget, CLAUDE
 use crate::db::{self, Message};
 use crate::disco_prompts::get_disco_prompt;
 use crate::knowledge::{INTERSECT_KNOWLEDGE, is_self_referential_query};
+use crate::logging;
 use crate::memory::{GroundingLevel, UserProfileSummary, MemoryExtractor};
 use crate::openai::{ChatMessage, OpenAIClient};
 use serde::{Deserialize, Serialize};
@@ -192,7 +193,7 @@ impl Orchestrator {
         
         // If user wants all agents and we have 3 active, return special "all_agents" decision
         if all_agent_request && active_agents.len() >= 3 {
-            println!("[TURN-TAKING] User requested all agents - all 3 will respond");
+            logging::log_routing(None, "User requested all agents - all 3 will respond");
             // Return a decision that will trigger all-agent mode
             // We use "all_agents" as the secondary_type to signal this
             return Ok(OrchestratorDecision {
@@ -368,8 +369,10 @@ Respond with ONLY valid JSON:
             format!("Failed to parse orchestrator response: {}. Response was: {}", e, cleaned)
         })?;
         
-        println!("[TURN-TAKING] Decision: primary={}, add_secondary={}, secondary={:?}, type={:?}",
-            decision.primary_agent, decision.add_secondary, decision.secondary_agent, decision.secondary_type);
+        logging::log_routing(None, &format!(
+            "Decision: primary={}, add_secondary={}, secondary={:?}, type={:?}",
+            decision.primary_agent, decision.add_secondary, decision.secondary_agent, decision.secondary_type
+        ));
         
         // Validate that chosen agents are active
         let primary = if active_agents.contains(&decision.primary_agent) {
@@ -390,7 +393,7 @@ Respond with ONLY valid JSON:
         let (final_primary, final_secondary) = if let Some(ref forced) = forced_agent {
             if primary != *forced && secondary.as_ref() != Some(forced) {
                 // Forced agent wasn't included, add them as secondary
-                println!("[TURN-TAKING] Forcing {} to participate (3+ exchanges silent)", forced);
+                logging::log_routing(None, &format!("Forcing {} to participate (3+ exchanges silent)", forced));
                 (primary, Some(forced.clone()))
             } else {
                 (primary, secondary)
@@ -419,7 +422,7 @@ Respond with ONLY valid JSON:
     ) -> Result<(bool, Option<String>, Option<String>), Box<dyn Error + Send + Sync>> {
         // Hard limit: never exceed 4 responses total
         if response_count >= 4 {
-            println!("[DEBATE] Hit max response limit (4), ending debate");
+            logging::log_agent(None, "Hit max response limit (4), ending debate");
             return Ok((false, None, None));
         }
         
@@ -515,8 +518,10 @@ Respond with ONLY valid JSON:
         
         match serde_json::from_str::<ContinueDecision>(cleaned) {
             Ok(decision) => {
-                println!("[DEBATE] Continue={}, next={:?}, reason={:?}", 
-                    decision.should_continue, decision.next_agent, decision.reason);
+                logging::log_agent(None, &format!(
+                    "Debate continue={}, next={:?}, reason={:?}",
+                    decision.should_continue, decision.next_agent, decision.reason
+                ));
                 
                 // Validate the chosen agent is active and hasn't responded recently
                 let next = decision.next_agent.and_then(|a| {
@@ -530,7 +535,7 @@ Respond with ONLY valid JSON:
                 Ok((decision.should_continue && next.is_some(), next, decision.response_type))
             }
             Err(e) => {
-                println!("[DEBATE] Failed to parse continue decision: {}", e);
+                logging::log_error(None, &format!("Failed to parse debate continue decision: {}", e));
                 Ok((false, None, None))
             }
         }
@@ -593,12 +598,14 @@ Respond with ONLY valid JSON:
             .trim();
         
         let decision: GroundingDecision = serde_json::from_str(cleaned).unwrap_or_else(|e| {
-            println!("[GROUNDING] Failed to parse: {}. Using default.", e);
+            logging::log_error(None, &format!("Failed to parse grounding decision: {}. Using default.", e));
             GroundingDecision::default()
         });
         
-        println!("[GROUNDING] Decision: level={}, facts={:?}, patterns={:?}", 
-            decision.grounding_level, decision.relevant_facts, decision.relevant_patterns);
+        logging::log_routing(None, &format!(
+            "Grounding decision: level={}, facts={:?}, patterns={:?}",
+            decision.grounding_level, decision.relevant_facts, decision.relevant_patterns
+        ));
         
         Ok(decision)
     }

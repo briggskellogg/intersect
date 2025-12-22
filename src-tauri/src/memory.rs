@@ -8,6 +8,7 @@
 
 use crate::db::{self, UserFact, UserPattern, ConversationSummary, Message};
 use crate::anthropic::{AnthropicClient, AnthropicMessage, ThinkingBudget, CLAUDE_OPUS};
+use crate::logging;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
@@ -94,8 +95,9 @@ impl MemoryExtractor {
         existing_facts: &[UserFact],
         conversation_id: &str,
     ) -> Result<ExtractionResult, Box<dyn Error + Send + Sync>> {
-        println!("[MEMORY] Starting extraction for conversation: {}", conversation_id);
-        println!("[MEMORY] User message: {}", &user_message[..user_message.len().min(100)]);
+        logging::log_memory(Some(conversation_id), &format!(
+            "Starting extraction. User message: {}", &user_message[..user_message.len().min(100)]
+        ));
         // Build context of existing facts for the LLM
         let existing_facts_context = if existing_facts.is_empty() {
             "No existing facts about the user.".to_string()
@@ -172,7 +174,9 @@ Respond with ONLY valid JSON in this exact format:
             ThinkingBudget::High
         ).await?;
         
-        println!("[MEMORY] Got extraction response, length: {}", response.len());
+        logging::log_memory(Some(conversation_id), &format!(
+            "Got extraction response, length: {}", response.len()
+        ));
         
         // Parse JSON response
         let cleaned = response
@@ -181,23 +185,29 @@ Respond with ONLY valid JSON in this exact format:
             .trim_end_matches("```")
             .trim();
         
-        let result: ExtractionResult = serde_json::from_str(cleaned).unwrap_or_else(|e| {
-            // Return empty result if parsing fails
-            println!("[MEMORY] Failed to parse extraction JSON: {}. Response: {}", e, &cleaned[..cleaned.len().min(200)]);
-            ExtractionResult {
-                new_facts: Vec::new(),
-                updated_facts: Vec::new(),
-                new_patterns: Vec::new(),
-                themes: Vec::new(),
+        let result: ExtractionResult = match serde_json::from_str(cleaned) {
+            Ok(r) => r,
+            Err(e) => {
+                logging::log_error(Some(conversation_id), &format!(
+                    "Failed to parse extraction JSON: {}. Response: {}", e, &cleaned[..cleaned.len().min(200)]
+                ));
+                ExtractionResult {
+                    new_facts: Vec::new(),
+                    updated_facts: Vec::new(),
+                    new_patterns: Vec::new(),
+                    themes: Vec::new(),
+                }
             }
-        });
+        };
         
-        println!("[MEMORY] Extracted {} facts, {} patterns, {} themes", 
-            result.new_facts.len(), result.new_patterns.len(), result.themes.len());
+        logging::log_memory(Some(conversation_id), &format!(
+            "Extracted {} facts, {} patterns, {} themes",
+            result.new_facts.len(), result.new_patterns.len(), result.themes.len()
+        ));
         
         // Save extracted data to database
         self.save_extraction_result(&result, conversation_id)?;
-        println!("[MEMORY] Saved extraction result to database");
+        logging::log_memory(Some(conversation_id), "Saved extraction result to database");
         
         Ok(result)
     }

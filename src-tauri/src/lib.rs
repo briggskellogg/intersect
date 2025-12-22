@@ -2,6 +2,7 @@ mod anthropic;
 mod db;
 mod disco_prompts;
 mod knowledge;
+mod logging;
 mod memory;
 mod openai;
 mod orchestrator;
@@ -39,9 +40,160 @@ pub struct ConversationInfo {
 
 // ============ App Initialization ============
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct InitResult {
+    pub status: String,            // "ready" | "recovery_needed"
+    pub recovered_count: usize,    // Number of conversations needing recovery
+}
+
 #[tauri::command]
-fn init_app(app_handle: tauri::AppHandle) -> Result<(), String> {
-    db::init_database(&app_handle).map_err(|e| e.to_string())
+fn init_app(app_handle: tauri::AppHandle) -> Result<InitResult, String> {
+    // Initialize database
+    db::init_database(&app_handle).map_err(|e| e.to_string())?;
+    
+    // Initialize logging
+    if let Err(e) = logging::init_logging() {
+        eprintln!("Failed to initialize logging: {}", e);
+    }
+    
+    // Clean up old log files (keep last 7 days)
+    let _ = logging::cleanup_old_logs();
+    
+    // Check for orphaned conversations from crash/force-quit
+    let unprocessed = db::get_conversations_needing_recovery().unwrap_or_default();
+    
+    if !unprocessed.is_empty() {
+        logging::log_conversation(None, &format!(
+            "Found {} unprocessed conversations from previous session",
+            unprocessed.len()
+        ));
+        
+        return Ok(InitResult {
+            status: "recovery_needed".to_string(),
+            recovered_count: unprocessed.len(),
+        });
+    }
+    
+    logging::log_conversation(None, "App initialized, no recovery needed");
+    
+    Ok(InitResult {
+        status: "ready".to_string(),
+        recovered_count: 0,
+    })
+}
+
+/// Recover and finalize all unprocessed conversations from crashes/force-quits
+#[tauri::command]
+async fn recover_conversations() -> Result<usize, String> {
+    let unprocessed = db::get_conversations_needing_recovery()
+        .map_err(|e| e.to_string())?;
+    
+    let count = unprocessed.len();
+    logging::log_conversation(None, &format!("Starting recovery of {} conversations", count));
+    
+    for conv in unprocessed {
+        logging::log_conversation(Some(&conv.id), "Recovering conversation");
+        
+        // Use the existing finalize_conversation logic
+        if let Err(e) = finalize_conversation_internal(&conv.id).await {
+            logging::log_error(Some(&conv.id), &format!("Recovery failed: {}", e));
+        }
+    }
+    
+    logging::log_conversation(None, &format!("Recovery complete: {} conversations processed", count));
+    
+    Ok(count)
+}
+
+/// Internal finalization logic (shared between normal finalize and recovery)
+async fn finalize_conversation_internal(conversation_id: &str) -> Result<(), String> {
+    let profile = db::get_user_profile().map_err(|e| e.to_string())?;
+    let anthropic_key = match profile.anthropic_key {
+        Some(key) => key,
+        None => {
+            // No API key - just mark as processed without extraction
+            db::mark_conversation_processed(conversation_id, None)
+                .map_err(|e| e.to_string())?;
+            return Ok(());
+        }
+    };
+    
+    let conversation = db::get_conversation(conversation_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Conversation not found")?;
+    
+    if conversation.processed {
+        return Ok(());
+    }
+    
+    let messages = db::get_conversation_messages(conversation_id)
+        .map_err(|e| e.to_string())?;
+    
+    if messages.len() < 2 {
+        db::mark_conversation_processed(conversation_id, None)
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    
+    logging::log_conversation(Some(conversation_id), &format!(
+        "Finalizing conversation with {} messages", messages.len()
+    ));
+    
+    // Generate summary
+    let summarizer = ConversationSummarizer::new(&anthropic_key);
+    let agents_involved: Vec<String> = messages.iter()
+        .filter(|m| m.role != "user" && m.role != "system")
+        .map(|m| m.role.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    
+    let final_summary = match summarizer.summarize(&messages, None).await {
+        Ok(result) => {
+            let _ = ConversationSummarizer::save_summary(
+                conversation_id,
+                &result,
+                messages.len() as i64,
+                &agents_involved,
+            );
+            logging::log_memory(Some(conversation_id), &format!(
+                "Generated summary: {} topics", result.key_topics.len()
+            ));
+            Some(result.summary)
+        }
+        Err(e) => {
+            logging::log_error(Some(conversation_id), &format!("Summary failed: {}", e));
+            conversation.limbo_summary.clone()
+        }
+    };
+    
+    // Extract patterns
+    let extractor = MemoryExtractor::new(&anthropic_key);
+    let existing_facts = db::get_all_user_facts().unwrap_or_default();
+    
+    let full_conversation: String = messages.iter()
+        .map(|m| format!("{}: {}", m.role.to_uppercase(), m.content))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    
+    if let Ok(result) = extractor.extract_from_exchange(
+        &full_conversation,
+        &[],
+        &existing_facts,
+        conversation_id,
+    ).await {
+        logging::log_memory(Some(conversation_id), &format!(
+            "Extracted {} facts, {} patterns",
+            result.new_facts.len(), result.new_patterns.len()
+        ));
+    }
+    
+    db::mark_conversation_processed(conversation_id, final_summary.as_deref())
+        .map_err(|e| e.to_string())?;
+    
+    logging::log_conversation(Some(conversation_id), "Finalization complete");
+    
+    Ok(())
 }
 
 // ============ User Profile ============
@@ -168,86 +320,7 @@ fn clear_conversation(conversation_id: String) -> Result<(), String> {
 /// Finalize a conversation: run holistic extraction, consolidate facts, generate final summary
 #[tauri::command]
 async fn finalize_conversation(conversation_id: String) -> Result<(), String> {
-    let profile = db::get_user_profile().map_err(|e| e.to_string())?;
-    let anthropic_key = profile.anthropic_key.ok_or("Anthropic API key not set")?;
-    
-    // Get the conversation
-    let conversation = db::get_conversation(&conversation_id)
-        .map_err(|e| e.to_string())?
-        .ok_or("Conversation not found")?;
-    
-    // Skip if already processed
-    if conversation.processed {
-        println!("[FINALIZE] Conversation {} already processed, skipping", conversation_id);
-        return Ok(());
-    }
-    
-    // Get all messages from this conversation
-    let messages = db::get_conversation_messages(&conversation_id).map_err(|e| e.to_string())?;
-    
-    if messages.len() < 2 {
-        // Not enough content to finalize - just mark as processed
-        db::mark_conversation_processed(&conversation_id, None).map_err(|e| e.to_string())?;
-        return Ok(());
-    }
-    
-    println!("[FINALIZE] Processing conversation {} with {} messages", conversation_id, messages.len());
-    
-    // 1. Generate a holistic summary of the entire conversation
-    let summarizer = ConversationSummarizer::new(&anthropic_key);
-    let agents_involved: Vec<String> = messages.iter()
-        .filter(|m| m.role != "user" && m.role != "system")
-        .map(|m| m.role.clone())
-        .collect::<std::collections::HashSet<_>>()
-        .into_iter()
-        .collect();
-    
-    let final_summary = match summarizer.summarize(&messages, None).await {
-        Ok(result) => {
-            // Save the conversation summary
-            let _ = ConversationSummarizer::save_summary(
-                &conversation_id,
-                &result,
-                messages.len() as i64,
-                &agents_involved,
-            );
-            Some(result.summary)
-        }
-        Err(e) => {
-            println!("[FINALIZE] Summary generation failed: {}", e);
-            conversation.limbo_summary.clone() // Fall back to limbo summary
-        }
-    };
-    
-    // 2. Run one final extraction pass on the whole conversation
-    // This catches patterns that span multiple exchanges
-    let extractor = MemoryExtractor::new(&anthropic_key);
-    let existing_facts = db::get_all_user_facts().unwrap_or_default();
-    
-    // Build full conversation text for holistic extraction
-    let full_conversation: String = messages.iter()
-        .map(|m| format!("{}: {}", m.role.to_uppercase(), m.content))
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    
-    // Extract patterns from the full conversation
-    if let Ok(result) = extractor.extract_from_exchange(
-        &full_conversation,
-        &[], // No individual responses, we're extracting from the whole thing
-        &existing_facts,
-        &conversation_id,
-    ).await {
-        println!("[FINALIZE] Final extraction: {} facts, {} patterns", 
-            result.new_facts.len(), result.new_patterns.len());
-    }
-    
-    // 3. Mark conversation as processed
-    db::mark_conversation_processed(&conversation_id, final_summary.as_deref())
-        .map_err(|e| e.to_string())?;
-    
-    println!("[FINALIZE] Conversation {} finalized successfully", conversation_id);
-    
-    Ok(())
+    finalize_conversation_internal(&conversation_id).await
 }
 
 // ============ Conversation Opener ============
@@ -708,9 +781,11 @@ async fn send_message(
     let intrinsic_analysis = intrinsic_analyzer.analyze(&user_message).await.ok();
     
     if let Some(ref intrinsic) = intrinsic_analysis {
-        println!("[TRAITS] Intrinsic signals - Logic: {:.2}, Instinct: {:.2}, Psyche: {:.2}", 
-            intrinsic.logic_signal, intrinsic.instinct_signal, intrinsic.psyche_signal);
-        println!("[TRAITS] Reasoning: {}", intrinsic.reasoning);
+        logging::log_routing(Some(&conversation_id), &format!(
+            "Intrinsic signals - Logic: {:.2}, Instinct: {:.2}, Psyche: {:.2}. Reasoning: {}",
+            intrinsic.logic_signal, intrinsic.instinct_signal, intrinsic.psyche_signal,
+            intrinsic.reasoning
+        ));
     }
     
     // 2. Engagement Analysis: Analyze user's response to previous agent messages
@@ -725,15 +800,20 @@ async fn send_message(
         .collect();
     
     let engagement_analysis = if !previous_agent_responses.is_empty() {
-        println!("[WEIGHTS] Analyzing engagement with {} previous agent responses", previous_agent_responses.len());
+        logging::log_routing(Some(&conversation_id), &format!(
+            "Analyzing engagement with {} previous agent responses",
+            previous_agent_responses.len()
+        ));
         
         let engagement_analyzer = EngagementAnalyzer::new(&anthropic_key);
         let result = engagement_analyzer.analyze_engagement(&user_message, &previous_agent_responses).await.ok();
         
         if let Some(ref analysis) = result {
-            println!("[WEIGHTS] Engagement scores - Logic: {:.2}, Instinct: {:.2}, Psyche: {:.2}", 
-                analysis.logic_score, analysis.instinct_score, analysis.psyche_score);
-            println!("[WEIGHTS] Reasoning: {}", analysis.reasoning);
+            logging::log_routing(Some(&conversation_id), &format!(
+                "Engagement scores - Logic: {:.2}, Instinct: {:.2}, Psyche: {:.2}. Reasoning: {}",
+                analysis.logic_score, analysis.instinct_score, analysis.psyche_score,
+                analysis.reasoning
+            ));
         }
         result
     } else {
@@ -755,9 +835,10 @@ async fn send_message(
         );
         
         let variability = 1.0 / (1.0 + (profile.total_messages as f64 / 100.0).powf(1.5));
-        println!("[WEIGHTS] Variability at {} messages: {:.4}", profile.total_messages, variability);
-        println!("[WEIGHTS] Combined weights - Instinct: {:.3}, Logic: {:.3}, Psyche: {:.3}", 
-            new_weights.0, new_weights.1, new_weights.2);
+        logging::log_routing(Some(&conversation_id), &format!(
+            "Variability at {} messages: {:.4}. Combined weights - Instinct: {:.3}, Logic: {:.3}, Psyche: {:.3}",
+            profile.total_messages, variability, new_weights.0, new_weights.1, new_weights.2
+        ));
         
         db::update_weights(new_weights.0, new_weights.1, new_weights.2).map_err(|e| e.to_string())?;
     }
@@ -801,7 +882,9 @@ async fn send_message(
     // Check if primary agent is in disco mode
     let primary_is_disco = disco_agents.contains(&primary_agent.as_str().to_string());
     if primary_is_disco {
-        println!("[DISCO] {} is in DISCO MODE - using extreme prompts", primary_agent.as_str());
+        logging::log_agent(Some(&conversation_id), &format!(
+            "{} is in DISCO MODE - using extreme prompts", primary_agent.as_str()
+        ));
     }
     
     let primary_response = orchestrator
@@ -851,7 +934,9 @@ async fn send_message(
         if let Some(secondary_agent_str) = decision.secondary_agent {
             // Handle "all_agents" request - get responses from all remaining active agents
             if secondary_agent_str == "all" {
-                println!("[TURN-TAKING] All-agent request - getting responses from all {} agents", active_agents.len());
+                logging::log_routing(Some(&conversation_id), &format!(
+                    "All-agent request - getting responses from all {} agents", active_agents.len()
+                ));
                 
                 // Get the remaining agents (everyone except primary)
                 let remaining_agents: Vec<String> = active_agents.iter()
@@ -922,7 +1007,9 @@ async fn send_message(
                 // Check if secondary agent is in disco mode
                 let secondary_is_disco = disco_agents.contains(&secondary_agent.as_str().to_string());
                 if secondary_is_disco {
-                    println!("[DISCO] {} is in DISCO MODE - using extreme prompts", secondary_agent.as_str());
+                    logging::log_agent(Some(&conversation_id), &format!(
+                        "{} is in DISCO MODE - using extreme prompts", secondary_agent.as_str()
+                    ));
                 }
                 
                 let secondary_response = orchestrator
@@ -998,7 +1085,9 @@ async fn send_message(
                             .unwrap_or((false, None, None));
                         
                         if !should_continue {
-                            println!("[DEBATE] Ending after {} responses (turn {})", response_count, turn);
+                            logging::log_agent(Some(&conversation_id), &format!(
+                                "Debate ending after {} responses (turn {})", response_count, turn
+                            ));
                             break;
                         }
                         
@@ -1013,7 +1102,9 @@ async fn send_message(
                                 
                                 let next_is_disco = disco_agents.contains(&next_agent.as_str().to_string());
                                 
-                                println!("[DEBATE] Turn {}: {} responding (disco: {})", turn + 1, next_agent.as_str(), next_is_disco);
+                                logging::log_agent(Some(&conversation_id), &format!(
+                                    "Debate turn {}: {} responding (disco: {})", turn + 1, next_agent.as_str(), next_is_disco
+                                ));
                                 
                                 let next_response = orchestrator
                                     .get_agent_response_with_grounding(
@@ -1091,11 +1182,11 @@ async fn send_message(
         .collect();
     let existing_facts_clone = existing_facts;
     
-    println!("[MEMORY] Spawning extraction task...");
+    logging::log_memory(Some(&conversation_id), "Spawning extraction task...");
     
     // Spawn memory extraction as a background task (uses Anthropic Opus)
     tokio::spawn(async move {
-        println!("[MEMORY] Extraction task started");
+        logging::log_memory(Some(&conversation_id_clone), "Extraction task started");
         let extractor = MemoryExtractor::new(&anthropic_key_clone);
         match extractor.extract_from_exchange(
             &user_message_clone,
@@ -1103,9 +1194,13 @@ async fn send_message(
             &existing_facts_clone,
             &conversation_id_clone,
         ).await {
-            Ok(result) => println!("[MEMORY] Extraction completed: {} facts, {} patterns", 
-                result.new_facts.len(), result.new_patterns.len()),
-            Err(e) => println!("[MEMORY] Extraction failed: {}", e),
+            Ok(result) => logging::log_memory(Some(&conversation_id_clone), &format!(
+                "Extraction completed: {} facts, {} patterns",
+                result.new_facts.len(), result.new_patterns.len()
+            )),
+            Err(e) => logging::log_error(Some(&conversation_id_clone), &format!(
+                "Extraction failed: {}", e
+            )),
         }
     });
     
@@ -1121,7 +1216,7 @@ async fn send_message(
             agents_summary.join("\n")
         );
         let _ = db::append_limbo_summary(&conversation_id, &exchange_note);
-        println!("[MEMORY] Appended exchange to limbo summary");
+        logging::log_memory(Some(&conversation_id), "Appended exchange to limbo summary");
     }
     
     // ===== MEMORY SYSTEM: Summarize Conversation Periodically =====
@@ -1509,6 +1604,7 @@ pub fn run() {
             get_conversation_messages,
             clear_conversation,
             finalize_conversation,
+            recover_conversations,
             get_conversation_opener,
             send_message,
             get_user_context,
