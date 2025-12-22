@@ -27,6 +27,8 @@ pub struct Conversation {
     pub id: String,
     pub title: Option<String>,
     pub summary: Option<String>,
+    pub limbo_summary: Option<String>,
+    pub processed: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -151,6 +153,8 @@ pub fn init_database(app_handle: &tauri::AppHandle) -> Result<()> {
             id TEXT PRIMARY KEY,
             title TEXT,
             summary TEXT,
+            limbo_summary TEXT,
+            processed INTEGER DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -265,6 +269,18 @@ pub fn init_database(app_handle: &tauri::AppHandle) -> Result<()> {
     
     if !has_persona_message_count {
         let _ = conn.execute("ALTER TABLE persona_profiles ADD COLUMN message_count INTEGER DEFAULT 0", []);
+    }
+    
+    // Migration: Add limbo_summary and processed columns to conversations table
+    let has_limbo_summary: bool = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('conversations') WHERE name='limbo_summary'",
+        [],
+        |row| Ok(row.get::<_, i64>(0)? > 0)
+    ).unwrap_or(false);
+    
+    if !has_limbo_summary {
+        let _ = conn.execute("ALTER TABLE conversations ADD COLUMN limbo_summary TEXT", []);
+        let _ = conn.execute("ALTER TABLE conversations ADD COLUMN processed INTEGER DEFAULT 0", []);
     }
     
     // Ensure a user profile exists (for API keys and message count)
@@ -593,14 +609,16 @@ pub fn create_conversation(id: &str) -> Result<Conversation> {
     let now = Utc::now().to_rfc3339();
     with_connection(|conn| {
         conn.execute(
-            "INSERT INTO conversations (id, title, summary, created_at, updated_at)
-             VALUES (?1, NULL, NULL, ?2, ?3)",
+            "INSERT INTO conversations (id, title, summary, limbo_summary, processed, created_at, updated_at)
+             VALUES (?1, NULL, NULL, NULL, 0, ?2, ?3)",
             params![id, now, now]
         )?;
         Ok(Conversation {
             id: id.to_string(),
             title: None,
             summary: None,
+            limbo_summary: None,
+            processed: false,
             created_at: now.clone(),
             updated_at: now,
         })
@@ -610,15 +628,17 @@ pub fn create_conversation(id: &str) -> Result<Conversation> {
 pub fn get_conversation(id: &str) -> Result<Option<Conversation>> {
     with_connection(|conn| {
         let result = conn.query_row(
-            "SELECT id, title, summary, created_at, updated_at FROM conversations WHERE id = ?1",
+            "SELECT id, title, summary, limbo_summary, processed, created_at, updated_at FROM conversations WHERE id = ?1",
             params![id],
             |row| {
                 Ok(Conversation {
                     id: row.get(0)?,
                     title: row.get(1)?,
                     summary: row.get(2)?,
-                    created_at: row.get(3)?,
-                    updated_at: row.get(4)?,
+                    limbo_summary: row.get(3)?,
+                    processed: row.get::<_, i64>(4)? != 0,
+                    created_at: row.get(5)?,
+                    updated_at: row.get(6)?,
                 })
             }
         );
@@ -633,7 +653,7 @@ pub fn get_conversation(id: &str) -> Result<Option<Conversation>> {
 pub fn get_recent_conversations(limit: usize) -> Result<Vec<Conversation>> {
     with_connection(|conn| {
         let mut stmt = conn.prepare(
-            "SELECT id, title, summary, created_at, updated_at 
+            "SELECT id, title, summary, limbo_summary, processed, created_at, updated_at 
              FROM conversations 
              ORDER BY updated_at DESC 
              LIMIT ?1"
@@ -644,8 +664,10 @@ pub fn get_recent_conversations(limit: usize) -> Result<Vec<Conversation>> {
                 id: row.get(0)?,
                 title: row.get(1)?,
                 summary: row.get(2)?,
-                created_at: row.get(3)?,
-                updated_at: row.get(4)?,
+                limbo_summary: row.get(3)?,
+                processed: row.get::<_, i64>(4)? != 0,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
             })
         })?;
         
@@ -661,6 +683,76 @@ pub fn update_conversation_title(id: &str, title: &str) -> Result<()> {
             params![title, now, id]
         )?;
         Ok(())
+    })
+}
+
+/// Append to the limbo summary (incremental summary built during conversation)
+pub fn append_limbo_summary(conversation_id: &str, new_content: &str) -> Result<()> {
+    let now = Utc::now().to_rfc3339();
+    with_connection(|conn| {
+        // Get existing limbo summary
+        let existing: Option<String> = conn.query_row(
+            "SELECT limbo_summary FROM conversations WHERE id = ?1",
+            params![conversation_id],
+            |row| row.get(0)
+        ).ok();
+        
+        // Append new content
+        let updated = match existing {
+            Some(existing_text) => format!("{}\n\n{}", existing_text, new_content),
+            None => new_content.to_string(),
+        };
+        
+        conn.execute(
+            "UPDATE conversations SET limbo_summary = ?1, updated_at = ?2 WHERE id = ?3",
+            params![updated, now, conversation_id]
+        )?;
+        Ok(())
+    })
+}
+
+/// Mark a conversation as fully processed (after finalization)
+pub fn mark_conversation_processed(conversation_id: &str, final_summary: Option<&str>) -> Result<()> {
+    let now = Utc::now().to_rfc3339();
+    with_connection(|conn| {
+        if let Some(summary) = final_summary {
+            conn.execute(
+                "UPDATE conversations SET processed = 1, summary = ?1, updated_at = ?2 WHERE id = ?3",
+                params![summary, now, conversation_id]
+            )?;
+        } else {
+            conn.execute(
+                "UPDATE conversations SET processed = 1, updated_at = ?1 WHERE id = ?2",
+                params![now, conversation_id]
+            )?;
+        }
+        Ok(())
+    })
+}
+
+/// Get unprocessed conversations (for finalization on startup if needed)
+pub fn get_unprocessed_conversations() -> Result<Vec<Conversation>> {
+    with_connection(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT id, title, summary, limbo_summary, processed, created_at, updated_at 
+             FROM conversations 
+             WHERE processed = 0
+             ORDER BY updated_at DESC"
+        )?;
+        
+        let convs = stmt.query_map([], |row| {
+            Ok(Conversation {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                summary: row.get(2)?,
+                limbo_summary: row.get(3)?,
+                processed: row.get::<_, i64>(4)? != 0,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            })
+        })?;
+        
+        convs.collect()
     })
 }
 

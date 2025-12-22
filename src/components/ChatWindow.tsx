@@ -14,6 +14,7 @@ import {
   createConversation, 
   getConversationOpener,
   getUserProfile,
+  finalizeConversation,
 } from '../hooks/useTauri';
 import { v4 as uuidv4 } from 'uuid';
 import governorIcon from '../assets/governor.png';
@@ -157,6 +158,19 @@ export function ChatWindow({ onOpenSettings, onOpenReport }: ChatWindowProps) {
     
     return () => clearInterval(scrollTimer);
   }, [isLoading]);
+
+  // Finalize conversation on app close
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // Fire and forget - we can't wait for async in beforeunload
+      if (currentConversation && messages.length > 1) {
+        finalizeConversation(currentConversation.id).catch(() => {});
+      }
+    };
+    
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [currentConversation, messages.length]);
 
   // Clear debate mode after a few seconds
   useEffect(() => {
@@ -492,9 +506,13 @@ export function ChatWindow({ onOpenSettings, onOpenReport }: ChatWindowProps) {
 
   // Handle new conversation
   const handleNewConversation = async () => {
-    // Show notification that previous conversation is being saved
+    // Finalize the previous conversation before starting a new one
     if (currentConversation && messages.length > 1) {
       setGovernorNotification("Sorting this conversation into long-term memory...");
+      // Fire and forget - don't block the UI
+      finalizeConversation(currentConversation.id).catch(err => 
+        console.error('Failed to finalize conversation:', err)
+      );
     }
     
     clearMessages();

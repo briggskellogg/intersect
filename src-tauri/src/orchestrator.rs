@@ -190,6 +190,30 @@ impl Orchestrator {
         user_profile: Option<&UserProfileSummary>,
         disco_agents: &[String],
     ) -> Result<OrchestratorDecision, Box<dyn Error + Send + Sync>> {
+        // ===== ALL-AGENT REQUEST DETECTION =====
+        // If user explicitly asks for all agents, we'll signal this in the decision
+        let msg_lower = user_message.to_lowercase();
+        let all_agent_request = msg_lower.contains("all of you") 
+            || msg_lower.contains("all three")
+            || msg_lower.contains("each of you")
+            || msg_lower.contains("everyone")
+            || msg_lower.contains("hear from all")
+            || msg_lower.contains("want to hear from each")
+            || msg_lower.contains("all your perspectives");
+        
+        // If user wants all agents and we have 3 active, return special "all_agents" decision
+        if all_agent_request && active_agents.len() >= 3 {
+            println!("[TURN-TAKING] User requested all agents - all 3 will respond");
+            // Return a decision that will trigger all-agent mode
+            // We use "all_agents" as the secondary_type to signal this
+            return Ok(OrchestratorDecision {
+                primary_agent: active_agents[0].clone(),
+                add_secondary: true,
+                secondary_agent: Some("all".to_string()), // Special marker for "all agents"
+                secondary_type: Some("all_agents".to_string()),
+            });
+        }
+        
         // If only one agent is active, use them as primary
         if active_agents.len() == 1 {
             return Ok(OrchestratorDecision {
@@ -402,16 +426,14 @@ Respond with ONLY valid JSON:
         disco_agents: &[String],
         response_count: usize,
     ) -> Result<(bool, Option<String>, Option<String>), Box<dyn Error + Send + Sync>> {
-        // Hard limit: never exceed 6 responses
-        if response_count >= 6 {
-            println!("[DEBATE] Hit max response limit (6), ending debate");
+        // Hard limit: never exceed 4 responses total
+        if response_count >= 4 {
+            println!("[DEBATE] Hit max response limit (4), ending debate");
             return Ok((false, None, None));
         }
         
-        // If no disco agents, don't continue multi-turn
-        if disco_agents.is_empty() {
-            return Ok((false, None, None));
-        }
+        // NOTE: Disco mode increases likelihood of debates but doesn't block them in normal mode
+        // Debates can happen naturally when there's genuine disagreement
         
         // Build context of responses so far
         let debate_context: String = responses_so_far
@@ -425,15 +447,30 @@ Respond with ONLY valid JSON:
             .filter(|a| !agents_who_responded.contains(a))
             .collect();
         
-        let disco_list = disco_agents.join(", ");
+        let disco_list = if disco_agents.is_empty() { 
+            "none".to_string() 
+        } else { 
+            disco_agents.join(", ") 
+        };
+        
+        // Track who has spoken and how many times
+        let mut response_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for (agent, _) in responses_so_far {
+            *response_counts.entry(agent.clone()).or_insert(0) += 1;
+        }
+        let agents_responded_once: Vec<&String> = response_counts.iter()
+            .filter(|(_, count)| **count == 1)
+            .map(|(agent, _)| agent)
+            .collect();
         
         let system_prompt = format!(r#"You are the Intersect Governor evaluating an ongoing multi-agent exchange.
 
 CONTEXT:
 - User asked: "{user_message}"
-- {response_count} agent responses have been given
-- Disco Mode agents (intense, opinionated): {disco_list}
-- Agents who haven't spoken yet: {agents_list}
+- {response_count} agent responses have been given (max 4)
+- Disco Mode agents (more intense): {disco_list}
+- Agents who haven't spoken: {agents_list}
+- Agents who could respond again: {agents_who_could_double}
 
 RESPONSES SO FAR:
 {debate_context}
@@ -441,15 +478,19 @@ RESPONSES SO FAR:
 DECISION: Should another agent jump in?
 
 Consider:
-1. Is there genuine disagreement or a new angle worth adding?
-2. Disco agents are MORE likely to want to interject with strong opinions
-3. Has the topic been sufficiently covered? (if yes, stop)
-4. Would another response add value or just belabor the point?
-5. Prefer STOPPING if the exchange feels complete
+1. Is there genuine disagreement worth expressing? (debates happen naturally, not just in Disco Mode)
+2. Would another agent strongly disagree with what was just said?
+3. An agent CAN respond a second time if they have something meaningful to add to new points
+   (e.g., Psyche responds, Instinct agrees, Logic disagrees, Psyche could respond to Logic's challenge)
+4. Disco agents are MORE likely to want to interject, but non-disco agents can too
+5. Prefer STOPPING if the exchange feels complete or would just belabor the point
+
+IMPORTANT: You can pick ANY active agent, including one who already spoke once, if they would genuinely have something new to say in response to recent points.
 
 Respond with ONLY valid JSON:
 {{"continue": true/false, "next_agent": "agent_name or null", "type": "addition/rebuttal/debate or null", "reason": "brief reason"}}"#,
-            agents_list = agents_who_havent.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+            agents_list = agents_who_havent.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
+            agents_who_could_double = agents_responded_once.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
         );
         
         // Use Anthropic client for debate continuation (Sonnet, thinking low)

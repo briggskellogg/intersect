@@ -196,6 +196,10 @@ export async function clearConversation(conversationId: string): Promise<void> {
   await invoke('clear_conversation', { conversationId });
 }
 
+export async function finalizeConversation(conversationId: string): Promise<void> {
+  await invoke('finalize_conversation', { conversationId });
+}
+
 // Conversation opener result
 export interface ConversationOpenerResult {
   agent: string;

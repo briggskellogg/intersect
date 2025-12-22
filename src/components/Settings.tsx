@@ -9,6 +9,7 @@ import {
   updatePersonaProfileName,
   setDefaultPersonaProfile,
   setActivePersonaProfile as setActivePersonaProfileBackend,
+  finalizeConversation,
 } from '../hooks/useTauri';
 import { ApiKeyModal } from './ApiKeyModal';
 import governorTransparent from '../assets/governor-transparent.png';
@@ -390,11 +391,13 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
   const { 
     userProfile, 
     clearMessages, 
+    currentConversation,
     setCurrentConversation, 
     setUserProfile, 
     allPersonaProfiles,
     setAllPersonaProfiles,
     setActivePersonaProfile,
+    messages,
   } = useAppStore();
   const [showApiModal, setShowApiModal] = useState(false);
   const [editingProfileName, setEditingProfileName] = useState<string | null>(null);
@@ -496,6 +499,13 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
     if (currentActive?.id === profileId) return;
     
     try {
+      // Finalize the current conversation before switching profiles
+      if (currentConversation && messages.length > 1) {
+        finalizeConversation(currentConversation.id).catch(err => 
+          console.error('Failed to finalize conversation:', err)
+        );
+      }
+      
       await setActivePersonaProfileBackend(profileId);
       const profiles = await getAllPersonaProfiles();
       setAllPersonaProfiles(profiles);

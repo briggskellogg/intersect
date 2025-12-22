@@ -165,6 +165,91 @@ fn clear_conversation(conversation_id: String) -> Result<(), String> {
     db::clear_conversation_messages(&conversation_id).map_err(|e| e.to_string())
 }
 
+/// Finalize a conversation: run holistic extraction, consolidate facts, generate final summary
+#[tauri::command]
+async fn finalize_conversation(conversation_id: String) -> Result<(), String> {
+    let profile = db::get_user_profile().map_err(|e| e.to_string())?;
+    let anthropic_key = profile.anthropic_key.ok_or("Anthropic API key not set")?;
+    
+    // Get the conversation
+    let conversation = db::get_conversation(&conversation_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Conversation not found")?;
+    
+    // Skip if already processed
+    if conversation.processed {
+        println!("[FINALIZE] Conversation {} already processed, skipping", conversation_id);
+        return Ok(());
+    }
+    
+    // Get all messages from this conversation
+    let messages = db::get_conversation_messages(&conversation_id).map_err(|e| e.to_string())?;
+    
+    if messages.len() < 2 {
+        // Not enough content to finalize - just mark as processed
+        db::mark_conversation_processed(&conversation_id, None).map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    
+    println!("[FINALIZE] Processing conversation {} with {} messages", conversation_id, messages.len());
+    
+    // 1. Generate a holistic summary of the entire conversation
+    let summarizer = ConversationSummarizer::new(&anthropic_key);
+    let agents_involved: Vec<String> = messages.iter()
+        .filter(|m| m.role != "user" && m.role != "system")
+        .map(|m| m.role.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    
+    let final_summary = match summarizer.summarize(&messages, None).await {
+        Ok(result) => {
+            // Save the conversation summary
+            let _ = ConversationSummarizer::save_summary(
+                &conversation_id,
+                &result,
+                messages.len() as i64,
+                &agents_involved,
+            );
+            Some(result.summary)
+        }
+        Err(e) => {
+            println!("[FINALIZE] Summary generation failed: {}", e);
+            conversation.limbo_summary.clone() // Fall back to limbo summary
+        }
+    };
+    
+    // 2. Run one final extraction pass on the whole conversation
+    // This catches patterns that span multiple exchanges
+    let extractor = MemoryExtractor::new(&anthropic_key);
+    let existing_facts = db::get_all_user_facts().unwrap_or_default();
+    
+    // Build full conversation text for holistic extraction
+    let full_conversation: String = messages.iter()
+        .map(|m| format!("{}: {}", m.role.to_uppercase(), m.content))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    
+    // Extract patterns from the full conversation
+    if let Ok(result) = extractor.extract_from_exchange(
+        &full_conversation,
+        &[], // No individual responses, we're extracting from the whole thing
+        &existing_facts,
+        &conversation_id,
+    ).await {
+        println!("[FINALIZE] Final extraction: {} facts, {} patterns", 
+            result.new_facts.len(), result.new_patterns.len());
+    }
+    
+    // 3. Mark conversation as processed
+    db::mark_conversation_processed(&conversation_id, final_summary.as_deref())
+        .map_err(|e| e.to_string())?;
+    
+    println!("[FINALIZE] Conversation {} finalized successfully", conversation_id);
+    
+    Ok(())
+}
+
 // ============ Conversation Opener ============
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -293,6 +378,15 @@ fn choose_opener_agent(weights: (f64, f64, f64)) -> String {
         "psyche".to_string()
     } else {
         "logic".to_string()
+    }
+}
+
+/// Truncate text to max_chars for summary purposes, adding "..." if truncated
+fn truncate_for_summary(text: &str, max_chars: usize) -> String {
+    if text.len() <= max_chars {
+        text.to_string()
+    } else {
+        format!("{}...", &text[..max_chars.saturating_sub(3)])
     }
 }
 
@@ -576,7 +670,61 @@ async fn send_message(
     // Get secondary agent response if needed
     if decision.add_secondary {
         if let Some(secondary_agent_str) = decision.secondary_agent {
-            if let Some(secondary_agent) = Agent::from_str(&secondary_agent_str) {
+            // Handle "all_agents" request - get responses from all remaining active agents
+            if secondary_agent_str == "all" {
+                println!("[TURN-TAKING] All-agent request - getting responses from all {} agents", active_agents.len());
+                
+                // Get the remaining agents (everyone except primary)
+                let remaining_agents: Vec<String> = active_agents.iter()
+                    .filter(|a| **a != decision.primary_agent)
+                    .cloned()
+                    .collect();
+                
+                for (idx, agent_str) in remaining_agents.iter().enumerate() {
+                    if let Some(agent) = Agent::from_str(agent_str) {
+                        agents_involved.push(agent.as_str().to_string());
+                        let is_disco = disco_agents.contains(agent_str);
+                        
+                        let response_type = if idx == 0 { ResponseType::Addition } else { ResponseType::Addition };
+                        
+                        let agent_response = orchestrator
+                            .get_agent_response_with_grounding(
+                                agent,
+                                &user_message,
+                                &recent_messages,
+                                response_type,
+                                Some(&primary_response),
+                                Some(primary_agent.as_str()),
+                                grounding.as_ref(),
+                                user_profile.as_ref(),
+                                is_disco,
+                                primary_is_disco,
+                            )
+                            .await
+                            .map_err(|e| e.to_string())?;
+                        
+                        // Save response
+                        let msg = Message {
+                            id: Uuid::new_v4().to_string(),
+                            conversation_id: conversation_id.clone(),
+                            role: agent.as_str().to_string(),
+                            content: agent_response.clone(),
+                            response_type: Some(response_type.as_str().to_string()),
+                            references_message_id: Some(primary_msg_id.clone()),
+                            timestamp: Utc::now().to_rfc3339(),
+                        };
+                        db::save_message(&msg).map_err(|e| e.to_string())?;
+                        
+                        responses.push(AgentResponse {
+                            agent: agent.as_str().to_string(),
+                            content: agent_response,
+                            response_type: response_type.as_str().to_string(),
+                            references_message_id: Some(primary_msg_id.clone()),
+                        });
+                    }
+                }
+                had_secondary = true;
+            } else if let Some(secondary_agent) = Agent::from_str(&secondary_agent_str) {
                 agents_involved.push(secondary_agent.as_str().to_string());
                 
                 let response_type = decision.secondary_type
@@ -640,9 +788,10 @@ async fn send_message(
                 final_weights = secondary_weights;
                 had_secondary = true;
                 
-                // ===== MULTI-TURN DEBATE LOOP (for Disco Mode) =====
-                // Only continue if there are disco agents active
-                if !disco_agents.is_empty() && response_type != ResponseType::Addition {
+                // ===== MULTI-TURN DEBATE LOOP =====
+                // Allow debates when there's genuine disagreement (rebuttal/debate), not just additions
+                // Disco mode makes debates more likely/intense, but they can happen in normal mode too
+                if response_type != ResponseType::Addition {
                     let mut responses_so_far: Vec<(String, String)> = vec![
                         (primary_agent.as_str().to_string(), primary_response.clone()),
                         (secondary_agent.as_str().to_string(), secondary_response.clone()),
@@ -654,8 +803,8 @@ async fn send_message(
                     let mut last_msg_id = secondary_msg.id.clone();
                     let mut current_weights = final_weights;
                     
-                    // Try to continue debate (up to 4 more responses, max 6 total)
-                    for turn in 0..4 {
+                    // Try to continue debate (up to 2 more responses, max 4 total)
+                    for turn in 0..2 {
                         let response_count = responses_so_far.len();
                         
                         let (should_continue, next_agent_str, next_type) = orchestrator
@@ -780,6 +929,21 @@ async fn send_message(
             Err(e) => println!("[MEMORY] Extraction failed: {}", e),
         }
     });
+    
+    // ===== MEMORY SYSTEM: Append to Limbo Summary (crash-safe incremental summary) =====
+    // This happens every exchange so the conversation is always recoverable
+    {
+        let agents_summary: Vec<String> = responses.iter()
+            .map(|r| format!("{}: {}", r.agent, truncate_for_summary(&r.content, 100)))
+            .collect();
+        let exchange_note = format!(
+            "User: {}\n{}",
+            truncate_for_summary(&user_message, 100),
+            agents_summary.join("\n")
+        );
+        let _ = db::append_limbo_summary(&conversation_id, &exchange_note);
+        println!("[MEMORY] Appended exchange to limbo summary");
+    }
     
     // ===== MEMORY SYSTEM: Summarize Conversation Periodically =====
     let message_count = profile.total_messages + 1;
@@ -1156,6 +1320,7 @@ pub fn run() {
             get_recent_conversations,
             get_conversation_messages,
             clear_conversation,
+            finalize_conversation,
             get_conversation_opener,
             send_message,
             get_user_context,
