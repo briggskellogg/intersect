@@ -1160,10 +1160,22 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
                 <span className="text-ash/40 font-mono text-sm">to chat</span>
               </div>
             )}
-            {/* Transcribing placeholder */}
+            {/* Transcribing placeholder - animated */}
             {!inputValue && isTranscribing && (
               <div className="absolute left-16 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none">
-                <span className="text-emerald-400/60 font-mono text-sm">Listening...</span>
+                <span className="text-emerald-400/60 font-mono text-sm">Listening</span>
+                <span className="flex gap-0.5">
+                  {[0, 1, 2].map((i) => (
+                    <motion.span
+                      key={i}
+                      className="text-emerald-400/60 font-mono text-sm"
+                      animate={{ opacity: [0.3, 1, 0.3] }}
+                      transition={{ duration: 1, repeat: Infinity, delay: i * 0.2, ease: 'easeInOut' }}
+                    >
+                      .
+                    </motion.span>
+                  ))}
+                </span>
               </div>
             )}
             {/* Enter hint on right side */}
