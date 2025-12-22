@@ -229,20 +229,19 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
     
     // Check if there's a conversation to archive
     if (currentConversation && messages.length > 1) {
-      // Ask user if they want to archive before closing
-      const shouldArchive = await confirm(
-        'Archive this conversation to long-term memory before closing?',
-        { title: 'Intersect', kind: 'info', okLabel: 'Archive & Close', cancelLabel: 'Cancel' }
+      // Ask user to confirm close
+      const shouldClose = await confirm(
+        "This will end your current conversation, but don't worry — it will be stored in Intersect's knowledge base.",
+        { title: 'Intersect', kind: 'info', okLabel: 'Close', cancelLabel: 'Cancel' }
       );
       
       // If user clicked Cancel, return to app without closing
-      if (!shouldArchive) {
+      if (!shouldClose) {
         return;
       }
       
-      // User wants to archive and close
+      // User confirmed close - archive in background and close
       isClosingRef.current = true;
-      setGovernorNotification({ message: "Archiving conversation to long-term memory..." });
       
       try {
         await finalizeConversation(currentConversation.id);
