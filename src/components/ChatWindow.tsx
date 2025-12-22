@@ -100,10 +100,10 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
         const conv = await createConversation();
         setCurrentConversation(conv);
         
-        // Governor is greeting the user
+        // Dominant agent is greeting the user
         setIsLoading(true);
         setThinkingPhase('thinking');
-        setThinkingAgent('system'); // Governor thinking
+        setThinkingAgent(dominantAgent); // Dominant agent thinking
         
         // #region agent log
         fetch('http://127.0.0.1:7242/ingest/962f7550-5ed1-4eac-a6be-f678c82650b8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatWindow.tsx:before-getOpener',message:'About to call getConversationOpener',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
@@ -116,15 +116,15 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
         fetch('http://127.0.0.1:7242/ingest/962f7550-5ed1-4eac-a6be-f678c82650b8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatWindow.tsx:after-getOpener',message:'getConversationOpener completed',data:{agent:openerResult.agent},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
         // #endregion
         
-        const governorMessage: Message = {
+        const openerMessage: Message = {
           id: uuidv4(),
           conversationId: conv.id,
-          role: 'system', // Governor greeting
+          role: openerResult.agent as Message['role'], // Dominant agent greeting
           content: openerResult.content,
           responseType: 'primary',
           timestamp: new Date(),
         };
-        addMessage(governorMessage);
+        addMessage(openerMessage);
         setIsLoading(false);
         setThinkingAgent(null);
       } catch (err) {
@@ -610,23 +610,23 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
       const conv = await createConversation();
       setCurrentConversation(conv);
       
-      // Governor is greeting the user
+      // Dominant agent is greeting the user
       setIsLoading(true);
       setThinkingPhase('thinking');
-      setThinkingAgent('system'); // Governor thinking
+      setThinkingAgent(dominantAgent); // Dominant agent thinking
       
-      // Get Governor greeting
+      // Get dominant agent greeting
       const openerResult = await getConversationOpener();
       
-      const governorMessage: Message = {
+      const openerMessage: Message = {
         id: uuidv4(),
         conversationId: conv.id,
-        role: 'system', // Governor greeting
+        role: openerResult.agent as Message['role'], // Dominant agent greeting
         content: openerResult.content,
         responseType: 'primary',
         timestamp: new Date(),
       };
-      addMessage(governorMessage);
+      addMessage(openerMessage);
       setIsLoading(false);
       setThinkingAgent(null);
     } catch (err) {
