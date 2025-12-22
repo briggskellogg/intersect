@@ -1189,14 +1189,11 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
           >
             <div className="relative">
               <Mic className="w-5 h-5" strokeWidth={1.5} />
-              {/* Status dot - color transitions smoothly via CSS */}
-              {(isConnecting || isTranscribing) && (
+              {/* Green dot only when connected (not during connecting) */}
+              {isTranscribing && (
                 <div 
-                  className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full transition-colors duration-300"
-                  style={{ 
-                    backgroundColor: isTranscribing ? '#22c55e' : '#eab308',
-                    animation: 'pulse-opacity 1s ease-in-out infinite'
-                  }}
+                  className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-400"
+                  style={{ animation: 'pulse-opacity 1s ease-in-out infinite' }}
                 />
               )}
             </div>
