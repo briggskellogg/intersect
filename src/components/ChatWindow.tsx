@@ -1097,7 +1097,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
             </AnimatePresence>
             
             {/* Floating chat input */}
-            <div className={`bg-charcoal/80 backdrop-blur-xl rounded-2xl border transition-all relative flex items-center shadow-2xl ${
+            <div className={`bg-charcoal/80 backdrop-blur-xl rounded-2xl border transition-all relative flex items-center shadow-2xl overflow-hidden ${
               isTranscribing ? 'border-emerald-500/50' : 'border-smoke/30'
             }`}>
             {/* User identity indicator on left with pulsing border */}
@@ -1149,7 +1149,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
               placeholder=""
               disabled={false}
               rows={1}
-              className="w-full bg-transparent text-pearl font-mono text-sm pl-14 pr-4 py-3 resize-none outline-none border-none overflow-y-auto scrollbar-thin scrollbar-thumb-smoke/50 scrollbar-track-transparent"
+              className="w-full bg-transparent text-pearl font-mono text-sm pl-14 pr-16 py-3 resize-none outline-none border-none overflow-y-auto"
               style={{ boxShadow: 'none', minHeight: '48px', maxHeight: '134px' }}
             />
             {/* Placeholder with styled slash */}
