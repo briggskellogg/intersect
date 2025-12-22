@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { confirm } from '@tauri-apps/plugin-dialog';
 import { MessageSquarePlus, Sparkles, ExternalLink, ShieldCheck, X, Minus, Square } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import { DebateIndicator } from './DebateIndicator';
@@ -181,18 +182,50 @@ export function ChatWindow({ onOpenSettings, onOpenReport }: ChatWindowProps) {
     }
   }, [isLoading]);
 
-  // Finalize conversation on app close
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      // Fire and forget - we can't wait for async in beforeunload
-      if (currentConversation && messages.length > 1) {
-        finalizeConversation(currentConversation.id).catch(() => {});
-      }
-    };
+  // Track close handling
+  const isClosingRef = useRef(false);
+  
+  // Handle window close with archiving
+  const handleWindowClose = useCallback(async () => {
+    if (isClosingRef.current) return; // Already handling close
     
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    // Check if there's a conversation to archive
+    if (currentConversation && messages.length > 1) {
+      // Ask user if they want to wait for archiving
+      const shouldWait = await confirm(
+        'Archive this conversation to long-term memory before closing?',
+        { title: 'Intersect', kind: 'info', okLabel: 'Archive & Close', cancelLabel: 'Close Now' }
+      );
+      
+      if (shouldWait) {
+        isClosingRef.current = true;
+        setGovernorNotification("Archiving conversation to long-term memory...");
+        
+        try {
+          await finalizeConversation(currentConversation.id);
+        } catch (err) {
+          console.error('Failed to finalize on close:', err);
+        }
+      }
+    }
+    
+    // Now actually close
+    await getCurrentWindow().destroy();
   }, [currentConversation, messages.length]);
+  
+  // Listen for window close request
+  useEffect(() => {
+    const appWindow = getCurrentWindow();
+    
+    const unlisten = appWindow.onCloseRequested(async (event) => {
+      event.preventDefault(); // Prevent default close
+      await handleWindowClose();
+    });
+    
+    return () => {
+      unlisten.then(fn => fn());
+    };
+  }, [handleWindowClose]);
 
   // Clear debate mode after a few seconds
   useEffect(() => {

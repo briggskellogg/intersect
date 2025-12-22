@@ -1325,6 +1325,7 @@ async fn set_always_on_top(window: tauri::Window, always_on_top: bool) -> Result
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             init_app,
             get_user_profile,
