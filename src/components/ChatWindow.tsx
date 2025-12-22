@@ -164,12 +164,19 @@ export function ChatWindow({ onOpenSettings, onOpenReport }: ChatWindowProps) {
     }
   }, [messages]);
   
-  // When loading starts, reset scroll tracking
+  // When loading starts, reset scroll tracking. When loading ends, scroll to show full response.
   useEffect(() => {
     if (isLoading) {
       // Only auto-scroll if user is near bottom when loading starts
       if (isNearBottom()) {
         userScrolledUp.current = false;
+      }
+    } else {
+      // Loading finished - scroll to bottom to show full response (with small delay for render)
+      if (!userScrolledUp.current) {
+        setTimeout(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
       }
     }
   }, [isLoading]);
@@ -813,7 +820,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport }: ChatWindowProps) {
       <div 
         ref={messagesContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-4 py-4 pb-24"
+        className="flex-1 overflow-y-auto pl-4 pr-6 py-4 pb-24"
       >
         {messages.length === 0 && !isLoading && (
           <div className="flex flex-col items-center justify-center h-full text-center">
