@@ -607,7 +607,10 @@ export function ChatWindow({ onOpenSettings, onOpenReport }: ChatWindowProps) {
               <Minus className="w-2 h-2 text-yellow-900 opacity-0 group-hover:opacity-100 transition-opacity" strokeWidth={3} />
             </button>
             <button
-              onClick={async () => { await getCurrentWindow().setFullscreen(!(await getCurrentWindow().isFullscreen())); }}
+              onClick={async () => { 
+                const win = getCurrentWindow();
+                await win.setFullscreen(!(await win.isFullscreen())); 
+              }}
               className="w-3 h-3 rounded-full bg-green-500 hover:bg-green-400 transition-colors cursor-pointer flex items-center justify-center group"
               title="Fullscreen"
             >
