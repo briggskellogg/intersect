@@ -213,6 +213,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport }: ChatWindowProps) {
       shouldCancelDebate.current = true;
       pendingMessage.current = content;
       setInputValue('');
+      if (inputRef.current) inputRef.current.style.height = '48px';
       return; // The pending message will be processed after current agent finishes
     }
     
@@ -229,6 +230,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport }: ChatWindowProps) {
     
     // Clear input and reset debate mode
     setInputValue('');
+    if (inputRef.current) inputRef.current.style.height = '48px';
     setDebateMode(null);
     
     // Add user message
@@ -824,13 +826,20 @@ export function ChatWindow({ onOpenSettings, onOpenReport }: ChatWindowProps) {
             <textarea
               ref={inputRef}
               value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
+              onChange={(e) => {
+                setInputValue(e.target.value);
+                // Auto-expand height based on content (up to 3 lines, then scroll)
+                e.target.style.height = 'auto';
+                const lineHeight = 20; // approx line height for text-sm
+                const maxHeight = lineHeight * 3 + 24; // 3 lines + padding
+                e.target.style.height = Math.min(e.target.scrollHeight, maxHeight) + 'px';
+              }}
               onKeyDown={handleKeyDown}
               placeholder=""
               disabled={false}
               rows={1}
-              className="w-full bg-transparent text-pearl font-mono text-sm pl-14 pr-20 py-3 resize-none outline-none border-none min-h-[48px] max-h-[120px]"
-              style={{ boxShadow: 'none' }}
+              className="w-full bg-transparent text-pearl font-mono text-sm pl-14 pr-20 py-3 resize-none outline-none border-none overflow-y-auto"
+              style={{ boxShadow: 'none', minHeight: '48px', maxHeight: '84px' }}
             />
             {/* Placeholder with styled slash */}
             {!inputValue && (
