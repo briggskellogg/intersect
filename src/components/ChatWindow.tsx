@@ -666,8 +666,8 @@ export function ChatWindow({ onOpenSettings, onOpenReport }: ChatWindowProps) {
             <kbd className="p-1 bg-smoke/30 rounded text-[10px] font-mono text-ash/60 border border-smoke/40 leading-none aspect-square flex items-center justify-center">⌘N</kbd>
           </button>
           
-          {/* Agent toggles */}
-          <div className="flex items-center gap-2">
+          {/* Agent toggles - in a pill container */}
+          <div className="flex items-center gap-1.5 bg-charcoal/60 rounded-full px-2 py-1.5 border border-smoke/30">
             {AGENT_ORDER.map((agentId) => {
               const agent = AGENTS[agentId];
               const mode = agentModes[agentId];
@@ -692,13 +692,13 @@ export function ChatWindow({ onOpenSettings, onOpenReport }: ChatWindowProps) {
                 <div key={agentId} className="relative group/agent flex items-center">
                   <motion.button
                     onClick={() => cycleAgentMode(agentId)}
-                    className={`relative w-6 h-6 rounded-full overflow-visible transition-all ${
+                    className={`relative w-5 h-5 rounded-full overflow-visible transition-all ${
                       isActive 
                         ? 'opacity-100' 
                         : 'opacity-40 grayscale hover:opacity-60'
                     } cursor-pointer`}
-                    whileHover={{ scale: 1.08 }}
-                    whileTap={{ scale: 0.92 }}
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
                   >
                     <div className="w-full h-full rounded-full overflow-hidden">
                       <img 
@@ -710,17 +710,17 @@ export function ChatWindow({ onOpenSettings, onOpenReport }: ChatWindowProps) {
                     {/* Disco mode sparkle - top right */}
                     {isDisco && (
                       <motion.div
-                        className="absolute -top-1 -right-1 z-20"
+                        className="absolute -top-0.5 -right-0.5 z-20"
                         animate={{ rotate: [0, 15, -15, 0], scale: [1, 1.1, 1] }}
                         transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
                       >
-                        <Sparkles className="w-3 h-3 text-amber-400" strokeWidth={2.5} />
+                        <Sparkles className="w-2.5 h-2.5 text-amber-400" strokeWidth={2.5} />
                       </motion.div>
                     )}
                     {/* Active indicator dot - bottom right, overlapping */}
                     {isActive && (
                       <motion.div
-                        className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-obsidian z-10"
+                        className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-charcoal z-10"
                         style={{ backgroundColor: isDisco ? '#EAB308' : '#22C55E' }}
                         animate={{ opacity: [0.7, 1, 0.7] }}
                         transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
