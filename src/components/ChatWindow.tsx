@@ -73,7 +73,9 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
   const shouldCancelDebate = useRef(false); // For user interruption during multi-turn debates
   const pendingMessage = useRef<string | null>(null); // Queue user's interrupting message
   
-  // Voice transcription
+  // Voice transcription - get key from localStorage as fallback for fresh loads
+  const effectiveElevenLabsKey = elevenLabsApiKey || (typeof localStorage !== 'undefined' ? localStorage.getItem('elevenlabs-api-key') : null) || '';
+  
   const {
     isTranscribing,
     transcript,
@@ -82,7 +84,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
     stop: stopTranscription,
     clearTranscript,
   } = useScribeTranscription({
-    apiKey: elevenLabsApiKey || '',
+    apiKey: effectiveElevenLabsKey,
     onError: (err) => setError(err.message),
   });
   
@@ -314,7 +316,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
 
   // Toggle transcription handler
   const toggleTranscription = useCallback(async () => {
-    if (!elevenLabsApiKey) {
+    if (!effectiveElevenLabsKey) {
       setGovernorNotification('Set your ElevenLabs API key in Settings to use voice transcription.');
       return;
     }
@@ -328,7 +330,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
         console.error('Failed to start transcription:', err);
       }
     }
-  }, [elevenLabsApiKey, isTranscribing, startTranscription, stopTranscription, setGovernorNotification]);
+  }, [effectiveElevenLabsKey, isTranscribing, startTranscription, stopTranscription, setGovernorNotification]);
   
   // Global keyboard shortcuts (Command + key)
   useEffect(() => {
@@ -1159,10 +1161,10 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
           {/* Microphone button - voice transcription */}
           <motion.button
             onClick={toggleTranscription}
-            className={`p-3 rounded-xl transition-all cursor-pointer ${
+            className={`flex items-center gap-1.5 px-2 py-2 rounded-lg transition-all cursor-pointer ${
               isTranscribing 
-                ? 'bg-emerald-500/20 border border-emerald-500/50 text-emerald-400' 
-                : 'bg-charcoal/80 border border-smoke/30 text-ash/60 hover:text-ash hover:border-smoke/50'
+                ? 'text-emerald-400' 
+                : 'text-ash/50 hover:text-ash'
             }`}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
@@ -1179,6 +1181,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
                 />
               )}
             </div>
+            <kbd className="text-[10px] font-mono text-ash/40">⌘S</kbd>
           </motion.button>
         </div>
         

@@ -97,7 +97,7 @@ export function GovernorNotification({ message, isVisible, onDismiss }: Governor
             {/* Content */}
             <div className="px-3 py-2">
               {phase === 'thinking' ? (
-                <p className="text-[11px] text-ash/60 font-mono">Analyzing patterns...</p>
+                <p className="text-[11px] text-ash/60 font-mono">Thinking...</p>
               ) : (
                 <p className="text-[11px] text-pearl/90 font-mono leading-relaxed">
                   {message}
