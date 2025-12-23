@@ -12,7 +12,7 @@ Intersect is a native macOS application that provides access to three distinct A
 
 The name "Intersect" refers to the intersection of three cognitive modes: Logic, Instinct, and Psyche. The app is inspired by the concept of the Intersect from the TV show "Chuck" — a system that downloads knowledge and capabilities into a human host, with the Governor acting as a regulatory mechanism.
 
-Created by Briggs Kellogg. Version 1.4.0.
+Created by Briggs Kellogg. Version 0.9.0.
 
 ## THE THREE AGENTS
 

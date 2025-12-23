@@ -877,7 +877,7 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
             <div className="flex items-center justify-between px-4 py-3 border-t border-smoke/30 flex-shrink-0">
               <div className="flex items-center gap-1.5">
                 <img src={governorTransparent} alt="" className="w-4 h-4 opacity-60" />
-                <p className="text-xs text-ash/60 font-mono">Intersect v1.4.0</p>
+                <p className="text-xs text-ash/60 font-mono">Intersect v0.9.0</p>
               </div>
               <div className="flex items-center gap-2">
                 {userProfile?.apiKey && (

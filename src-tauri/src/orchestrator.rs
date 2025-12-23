@@ -157,6 +157,288 @@ pub struct AgentResponse {
     pub references_message_id: Option<String>,
 }
 
+// ============ Heuristic Routing (No API calls - instant) ============
+
+/// Fast heuristic-based routing that replaces Claude-based routing for speed
+/// Uses weights, keyword matching, and silence detection
+pub fn decide_response_heuristic(
+    user_message: &str,
+    weights: (f64, f64, f64),
+    active_agents: &[String],
+    conversation_history: &[Message],
+    is_disco: bool,
+) -> OrchestratorDecision {
+    let (instinct_w, logic_w, psyche_w) = weights;
+    
+    // ===== SPECIAL CASE: All-agent request =====
+    let msg_lower = user_message.to_lowercase();
+    let all_agent_request = msg_lower.contains("all of you") 
+        || msg_lower.contains("all three")
+        || msg_lower.contains("each of you")
+        || msg_lower.contains("everyone")
+        || msg_lower.contains("hear from all")
+        || msg_lower.contains("want to hear from each")
+        || msg_lower.contains("all your perspectives");
+    
+    if all_agent_request && active_agents.len() >= 3 {
+        logging::log_routing(None, "[HEURISTIC] User requested all agents");
+        return OrchestratorDecision {
+            primary_agent: active_agents[0].clone(),
+            add_secondary: true,
+            secondary_agent: Some("all".to_string()),
+            secondary_type: Some("all_agents".to_string()),
+        };
+    }
+    
+    // ===== SINGLE AGENT: No routing needed =====
+    if active_agents.len() == 1 {
+        return OrchestratorDecision {
+            primary_agent: active_agents[0].clone(),
+            add_secondary: false,
+            secondary_agent: None,
+            secondary_type: None,
+        };
+    }
+    
+    // ===== KEYWORD SCORING =====
+    // Each agent gets a score based on message keywords
+    let mut scores: std::collections::HashMap<&str, f64> = std::collections::HashMap::new();
+    scores.insert("instinct", instinct_w);
+    scores.insert("logic", logic_w);
+    scores.insert("psyche", psyche_w);
+    
+    // Logic keywords: analytical, planning, debugging, data
+    let logic_keywords = ["analyze", "think", "logic", "reason", "plan", "step", "how do i", 
+        "what should", "explain", "break down", "structure", "system", "process", "debug",
+        "error", "fix", "code", "data", "numbers", "calculate", "compare", "evaluate",
+        "pros and cons", "trade-off", "decision matrix", "framework"];
+    
+    // Instinct keywords: quick, action, gut, immediate
+    let instinct_keywords = ["feel", "gut", "quick", "fast", "now", "immediately", "just do",
+        "trust", "sense", "vibe", "intuition", "something tells me", "my read", "honestly",
+        "straight up", "bottom line", "cut to", "tldr", "short version", "help me"];
+    
+    // Psyche keywords: emotional, why, meaning, introspection
+    let psyche_keywords = ["why", "meaning", "feel about", "emotion", "deeper", "really",
+        "underneath", "motivation", "afraid", "worried", "anxious", "happy", "sad", "love",
+        "relationship", "self", "identity", "purpose", "value", "matter", "care about",
+        "struggle", "conflict", "internal", "therapy", "reflect"];
+    
+    let boost = 0.15; // Keyword boost amount
+    
+    for keyword in logic_keywords.iter() {
+        if msg_lower.contains(keyword) {
+            *scores.entry("logic").or_insert(0.0) += boost;
+        }
+    }
+    for keyword in instinct_keywords.iter() {
+        if msg_lower.contains(keyword) {
+            *scores.entry("instinct").or_insert(0.0) += boost;
+        }
+    }
+    for keyword in psyche_keywords.iter() {
+        if msg_lower.contains(keyword) {
+            *scores.entry("psyche").or_insert(0.0) += boost;
+        }
+    }
+    
+    // ===== SILENCE DETECTION: Boost agents who haven't spoken recently =====
+    let mut agent_silence: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for agent in ["instinct", "logic", "psyche"] {
+        agent_silence.insert(agent, 0);
+    }
+    
+    let mut user_turns = 0;
+    for msg in conversation_history.iter().rev() {
+        if msg.role == "user" {
+            user_turns += 1;
+            if user_turns > 5 { break; } // Look at last 5 user turns
+        } else if msg.role != "system" {
+            // Agent spoke - reset their silence
+            if let Some(count) = agent_silence.get_mut(msg.role.as_str()) {
+                *count = 0;
+            }
+        }
+        // Increment silence for agents who didn't speak since last user turn
+        if msg.role == "user" {
+            for agent in ["instinct", "logic", "psyche"] {
+                if let Some(count) = agent_silence.get_mut(agent) {
+                    *count += 1;
+                }
+            }
+        }
+    }
+    
+    // Boost silent agents
+    for (agent, silence) in &agent_silence {
+        if *silence >= 3 {
+            if let Some(score) = scores.get_mut(agent) {
+                *score += 0.2; // Significant boost for silent agents
+                logging::log_routing(None, &format!("[HEURISTIC] {} silent for {} turns, boosting", agent, silence));
+            }
+        }
+    }
+    
+    // ===== SELECT PRIMARY AGENT =====
+    let mut primary = "logic"; // Default
+    let mut max_score = 0.0;
+    
+    for agent in active_agents {
+        if let Some(&score) = scores.get(agent.as_str()) {
+            if score > max_score {
+                max_score = score;
+                primary = match agent.as_str() {
+                    "instinct" => "instinct",
+                    "logic" => "logic",
+                    "psyche" => "psyche",
+                    _ => "logic",
+                };
+            }
+        }
+    }
+    
+    // ===== DECIDE SECONDARY =====
+    // Add secondary in disco mode, or if there's a significantly different perspective
+    let add_secondary = if is_disco {
+        true // Disco always adds secondary for more chaos
+    } else if active_agents.len() >= 2 {
+        // Add secondary if another agent has a close score (within 0.1)
+        let mut sorted_agents: Vec<(&str, f64)> = active_agents.iter()
+            .filter_map(|a| scores.get(a.as_str()).map(|&s| (a.as_str(), s)))
+            .collect();
+        sorted_agents.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        
+        if sorted_agents.len() >= 2 {
+            let diff = sorted_agents[0].1 - sorted_agents[1].1;
+            diff < 0.15 // Close call - add secondary
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+    
+    let secondary = if add_secondary && active_agents.len() >= 2 {
+        // Pick the agent with second-highest score
+        let mut sorted: Vec<(&str, f64)> = active_agents.iter()
+            .filter_map(|a| scores.get(a.as_str()).map(|&s| (a.as_str(), s)))
+            .collect();
+        sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        
+        if sorted.len() >= 2 && sorted[1].0 != primary {
+            Some(sorted[1].0.to_string())
+        } else if sorted.len() >= 3 {
+            Some(sorted[2].0.to_string())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    
+    let secondary_type = if secondary.is_some() {
+        Some("addition".to_string()) // Default to addition, not debate
+    } else {
+        None
+    };
+    
+    logging::log_routing(None, &format!(
+        "[HEURISTIC] Primary: {}, Secondary: {:?}, Scores: I={:.2} L={:.2} P={:.2}",
+        primary,
+        secondary,
+        scores.get("instinct").unwrap_or(&0.0),
+        scores.get("logic").unwrap_or(&0.0),
+        scores.get("psyche").unwrap_or(&0.0)
+    ));
+    
+    OrchestratorDecision {
+        primary_agent: primary.to_string(),
+        add_secondary: secondary.is_some(),
+        secondary_agent: secondary,
+        secondary_type,
+    }
+}
+
+// ============ Heuristic Grounding (No API calls - instant) ============
+
+/// Fast heuristic-based grounding decision
+pub fn decide_grounding_heuristic(
+    user_message: &str,
+    conversation_history: &[Message],
+    user_profile: Option<&UserProfileSummary>,
+) -> GroundingDecision {
+    let msg_lower = user_message.to_lowercase();
+    let word_count = user_message.split_whitespace().count();
+    
+    // First message in conversation? Light grounding
+    let user_message_count = conversation_history.iter()
+        .filter(|m| m.role == "user")
+        .count();
+    
+    if user_message_count <= 1 {
+        logging::log_routing(None, "[HEURISTIC] First message - Light grounding");
+        return GroundingDecision {
+            grounding_level: "light".to_string(),
+            relevant_facts: vec![],
+            relevant_patterns: vec![],
+            include_past_context: false,
+        };
+    }
+    
+    // Deep question indicators
+    let deep_indicators = ["why do i", "what does this mean", "help me understand", 
+        "been thinking about", "struggling with", "pattern", "always", "never",
+        "relationship", "therapy", "deeper", "really", "honestly", "truth"];
+    
+    let has_deep_indicator = deep_indicators.iter().any(|k| msg_lower.contains(k));
+    
+    // Complex message (long, multiple questions, deep keywords)
+    let question_count = user_message.matches('?').count();
+    let is_complex = word_count > 50 || question_count >= 2 || has_deep_indicator;
+    
+    // Check if user has substantial profile data
+    let (has_rich_profile, relevant_facts, relevant_patterns) = user_profile.map(|p| {
+        let total_facts: usize = p.facts_by_category.values().map(|v| v.len()).sum();
+        let has_rich = total_facts >= 3 || p.top_patterns.len() >= 2;
+        // Get all fact keys and pattern descriptions for deep grounding
+        let facts: Vec<String> = p.facts_by_category.values()
+            .flat_map(|facts| facts.iter().map(|f| f.key.clone()))
+            .collect();
+        let patterns: Vec<String> = p.top_patterns.iter()
+            .map(|p| p.description.clone())
+            .collect();
+        (has_rich, facts, patterns)
+    }).unwrap_or((false, vec![], vec![]));
+    
+    if is_complex && has_rich_profile {
+        logging::log_routing(None, "[HEURISTIC] Complex + rich profile - Deep grounding");
+        return GroundingDecision {
+            grounding_level: "deep".to_string(),
+            relevant_facts,
+            relevant_patterns,
+            include_past_context: true,
+        };
+    }
+    
+    if has_rich_profile || word_count > 30 {
+        logging::log_routing(None, "[HEURISTIC] Moderate grounding");
+        return GroundingDecision {
+            grounding_level: "moderate".to_string(),
+            relevant_facts: relevant_facts.into_iter().take(5).collect(),
+            relevant_patterns: relevant_patterns.into_iter().take(2).collect(),
+            include_past_context: false,
+        };
+    }
+    
+    logging::log_routing(None, "[HEURISTIC] Light grounding");
+    GroundingDecision {
+        grounding_level: "light".to_string(),
+        relevant_facts: vec![],
+        relevant_patterns: vec![],
+        include_past_context: false,
+    }
+}
+
 pub struct Orchestrator {
     openai_client: OpenAIClient,      // For agent responses (GPT-4o)
     anthropic_client: AnthropicClient, // For orchestration decisions (Claude Opus 4.5)

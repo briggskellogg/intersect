@@ -9,7 +9,7 @@ mod orchestrator;
 
 use db::{Message, UserProfile, UserContext};
 use memory::{MemoryExtractor, ConversationSummarizer};
-use orchestrator::{Orchestrator, Agent, ResponseType, AgentResponse, evolve_weights, InteractionType, EngagementAnalyzer, IntrinsicTraitAnalyzer, combine_trait_analyses};
+use orchestrator::{Orchestrator, Agent, ResponseType, AgentResponse, evolve_weights, InteractionType, EngagementAnalyzer, IntrinsicTraitAnalyzer, combine_trait_analyses, decide_response_heuristic, decide_grounding_heuristic};
 use serde::{Deserialize, Serialize};
 use chrono::Utc;
 use uuid::Uuid;
@@ -767,104 +767,25 @@ async fn send_message(
     // Get recent messages for context
     let recent_messages = db::get_recent_messages(&conversation_id, 20).map_err(|e| e.to_string())?;
     
-    // Create orchestrator (OpenAI for agents, Anthropic for Governor/orchestration)
+    // Create orchestrator (OpenAI for agents only - routing is now heuristic-based)
     let orchestrator = Orchestrator::new(&api_key, &anthropic_key);
     
-    // ===== DUAL TRAIT ANALYSIS: Intrinsic + Engagement (using Claude Opus 4.5) =====
+    // ===== FAST HEURISTIC ROUTING (No API calls) =====
+    // Trait analysis moved to background task AFTER response for speed
     
-    // 1. Intrinsic Trait Analysis: Analyze user's message itself for trait signals
-    let intrinsic_analyzer = IntrinsicTraitAnalyzer::new(&anthropic_key);
-    let intrinsic_analysis = intrinsic_analyzer.analyze(&user_message).await.ok();
+    // Use heuristic grounding (instant, no API call)
+    let grounding = user_profile.as_ref().map(|profile| {
+        decide_grounding_heuristic(&user_message, &recent_messages, Some(profile))
+    });
     
-    if let Some(ref intrinsic) = intrinsic_analysis {
-        logging::log_routing(Some(&conversation_id), &format!(
-            "Intrinsic signals - Logic: {:.2}, Instinct: {:.2}, Psyche: {:.2}. Reasoning: {}",
-            intrinsic.logic_signal, intrinsic.instinct_signal, intrinsic.psyche_signal,
-            intrinsic.reasoning
-        ));
-    }
-    
-    // 2. Engagement Analysis: Analyze user's response to previous agent messages
-    let previous_agent_responses: Vec<(Agent, String)> = recent_messages
-        .iter()
-        .rev() // Most recent first
-        .take_while(|m| m.role != "user" || m.id == user_msg.id) // Until previous user message
-        .filter(|m| m.role != "user" && m.role != "system")
-        .filter_map(|m| {
-            Agent::from_str(&m.role).map(|agent| (agent, m.content.clone()))
-        })
-        .collect();
-    
-    let engagement_analysis = if !previous_agent_responses.is_empty() {
-        logging::log_routing(Some(&conversation_id), &format!(
-            "Analyzing engagement with {} previous agent responses",
-            previous_agent_responses.len()
-        ));
-        
-        let engagement_analyzer = EngagementAnalyzer::new(&anthropic_key);
-        let result = engagement_analyzer.analyze_engagement(&user_message, &previous_agent_responses).await.ok();
-        
-        if let Some(ref analysis) = result {
-            logging::log_routing(Some(&conversation_id), &format!(
-                "Engagement scores - Logic: {:.2}, Instinct: {:.2}, Psyche: {:.2}. Reasoning: {}",
-                analysis.logic_score, analysis.instinct_score, analysis.psyche_score,
-                analysis.reasoning
-            ));
-        }
-        result
-    } else {
-        None
-    };
-    
-    // 3. Combine both analyses (intrinsic 30%, engagement 70%) with disco dampening
-    if intrinsic_analysis.is_some() || engagement_analysis.is_some() {
-        let current_weights = db::get_user_profile()
-            .map(|p| (p.instinct_weight, p.logic_weight, p.psyche_weight))
-            .unwrap_or(initial_weights);
-        
-        let new_weights = combine_trait_analyses(
-            current_weights,
-            engagement_analysis.as_ref(),
-            intrinsic_analysis.as_ref(),
-            is_disco,
-            profile.total_messages,
-        );
-        
-        let variability = 1.0 / (1.0 + (profile.total_messages as f64 / 100.0).powf(1.5));
-        logging::log_routing(Some(&conversation_id), &format!(
-            "Variability at {} messages: {:.4}. Combined weights - Instinct: {:.3}, Logic: {:.3}, Psyche: {:.3}",
-            profile.total_messages, variability, new_weights.0, new_weights.1, new_weights.2
-        ));
-        
-        db::update_weights(new_weights.0, new_weights.1, new_weights.2).map_err(|e| e.to_string())?;
-    }
-    
-    // ===== MEMORY SYSTEM: Grounding Decision =====
-    let grounding = if let Some(ref profile) = user_profile {
-        // Get conversation summary for context
-        let conv_summary = db::get_conversation_summary(&conversation_id).ok().flatten();
-        let context = conv_summary.as_ref().map(|s| s.summary.as_str());
-        
-        orchestrator
-            .decide_grounding(&user_message, profile, context)
-            .await
-            .ok()
-    } else {
-        None
-    };
-    
-    // ===== MEMORY SYSTEM: Pattern-Aware Routing =====
-    let decision = orchestrator
-        .decide_response_with_patterns(
-            &user_message, 
-            &recent_messages, 
-            initial_weights, 
-            &active_agents,
-            user_profile.as_ref(),
-            is_disco,
-        )
-        .await
-        .map_err(|e| e.to_string())?;
+    // Use heuristic routing (instant, no API call)
+    let decision = decide_response_heuristic(
+        &user_message, 
+        initial_weights, 
+        &active_agents,
+        &recent_messages,
+        is_disco,
+    );
     
     let mut responses = Vec::new();
     let mut debate_mode: Option<String> = None;
@@ -1163,6 +1084,92 @@ async fn send_message(
     
     // Increment message count
     db::increment_message_count().map_err(|e| e.to_string())?;
+    
+    // ===== TRAIT ANALYSIS: Run in background AFTER response (non-blocking) =====
+    // This was moved from before routing to improve response speed
+    {
+        let anthropic_key_for_traits = anthropic_key.clone();
+        let user_message_for_traits = user_message.clone();
+        let conversation_id_for_traits = conversation_id.clone();
+        let is_disco_for_traits = is_disco;
+        let total_messages_for_traits = profile.total_messages;
+        
+        // Collect previous agent responses for engagement analysis
+        let previous_responses_for_traits: Vec<(String, String)> = recent_messages
+            .iter()
+            .rev()
+            .take_while(|m| m.role != "user")
+            .filter(|m| m.role != "system")
+            .map(|m| (m.role.clone(), m.content.clone()))
+            .collect();
+        
+        tokio::spawn(async move {
+            logging::log_routing(Some(&conversation_id_for_traits), "[BACKGROUND] Starting trait analysis...");
+            
+            // 1. Intrinsic Trait Analysis
+            let intrinsic_analyzer = IntrinsicTraitAnalyzer::new(&anthropic_key_for_traits);
+            let intrinsic_analysis = intrinsic_analyzer.analyze(&user_message_for_traits).await.ok();
+            
+            if let Some(ref intrinsic) = intrinsic_analysis {
+                logging::log_routing(Some(&conversation_id_for_traits), &format!(
+                    "[BACKGROUND] Intrinsic signals - L:{:.2} I:{:.2} P:{:.2}",
+                    intrinsic.logic_signal, intrinsic.instinct_signal, intrinsic.psyche_signal
+                ));
+            }
+            
+            // 2. Engagement Analysis (if there were previous agent responses)
+            let engagement_analysis = if !previous_responses_for_traits.is_empty() {
+                let previous_with_agents: Vec<(Agent, String)> = previous_responses_for_traits
+                    .iter()
+                    .filter_map(|(role, content)| {
+                        Agent::from_str(role).map(|agent| (agent, content.clone()))
+                    })
+                    .collect();
+                
+                if !previous_with_agents.is_empty() {
+                    let engagement_analyzer = EngagementAnalyzer::new(&anthropic_key_for_traits);
+                    engagement_analyzer.analyze_engagement(&user_message_for_traits, &previous_with_agents).await.ok()
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            
+            if let Some(ref engagement) = engagement_analysis {
+                logging::log_routing(Some(&conversation_id_for_traits), &format!(
+                    "[BACKGROUND] Engagement scores - L:{:.2} I:{:.2} P:{:.2}",
+                    engagement.logic_score, engagement.instinct_score, engagement.psyche_score
+                ));
+            }
+            
+            // 3. Update weights if we have analysis
+            if intrinsic_analysis.is_some() || engagement_analysis.is_some() {
+                if let Ok(current_profile) = db::get_user_profile() {
+                    let current_weights = (current_profile.instinct_weight, current_profile.logic_weight, current_profile.psyche_weight);
+                    
+                    let new_weights = combine_trait_analyses(
+                        current_weights,
+                        engagement_analysis.as_ref(),
+                        intrinsic_analysis.as_ref(),
+                        is_disco_for_traits,
+                        total_messages_for_traits,
+                    );
+                    
+                    if let Err(e) = db::update_weights(new_weights.0, new_weights.1, new_weights.2) {
+                        logging::log_error(Some(&conversation_id_for_traits), &format!(
+                            "[BACKGROUND] Failed to update weights: {}", e
+                        ));
+                    } else {
+                        logging::log_routing(Some(&conversation_id_for_traits), &format!(
+                            "[BACKGROUND] Updated weights - I:{:.3} L:{:.3} P:{:.3}",
+                            new_weights.0, new_weights.1, new_weights.2
+                        ));
+                    }
+                }
+            }
+        });
+    }
     
     // ===== MEMORY SYSTEM: Extract Facts & Patterns (async, non-blocking) =====
     let anthropic_key_clone = anthropic_key.clone();
