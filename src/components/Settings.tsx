@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ExternalLink, Edit2, Calendar, Key } from 'lucide-react';
 import { useAppStore } from '../store';
@@ -555,7 +555,7 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
     }
   };
   
-  const handleSwitchProfile = async (profileId: string) => {
+  const handleSwitchProfile = useCallback(async (profileId: string) => {
     const currentActive = allPersonaProfiles.find(p => p.isActive);
     if (currentActive?.id === profileId) return;
     
@@ -583,7 +583,7 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
     } catch (err) {
       console.error('Failed to switch profile:', err);
     }
-  };
+  }, [allPersonaProfiles, currentConversation, messages.length, setAllPersonaProfiles, setActivePersonaProfile, setUserProfile, clearMessages, setCurrentConversation]);
   // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -596,10 +596,22 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
         e.preventDefault();
         setShowApiModal(true);
       }
+      // ⌘1, ⌘2, ⌘3 to switch profiles (matches AGENT_ORDER: psyche, logic, instinct)
+      if ((e.metaKey || e.ctrlKey) && isOpen && !showApiModal && !editingProfileName) {
+        const hotkeyMap: Record<string, string> = { '1': 'psyche', '2': 'logic', '3': 'instinct' };
+        const trait = hotkeyMap[e.key];
+        if (trait) {
+          e.preventDefault();
+          const profileForTrait = allPersonaProfiles.find(p => p.dominantTrait === trait);
+          if (profileForTrait && !profileForTrait.isActive) {
+            handleSwitchProfile(profileForTrait.id);
+          }
+        }
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose, showApiModal]);
+  }, [isOpen, onClose, showApiModal, editingProfileName, allPersonaProfiles, handleSwitchProfile]);
 
   return (
     <AnimatePresence>
