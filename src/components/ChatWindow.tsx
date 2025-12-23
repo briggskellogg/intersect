@@ -850,8 +850,8 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
                 <kbd className="text-[8px] font-mono text-ash/40">⌘D</kbd>
               </button>
               
-              {/* Disco Mode tooltip - appears above */}
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 pb-2 opacity-0 invisible group-hover/disco:opacity-100 group-hover/disco:visible transition-all z-50 pointer-events-none group-hover/disco:pointer-events-auto">
+              {/* Disco Mode tooltip - appears below */}
+              <div className="absolute top-full left-1/2 -translate-x-1/2 pt-2 opacity-0 invisible group-hover/disco:opacity-100 group-hover/disco:visible transition-all z-50 pointer-events-none group-hover/disco:pointer-events-auto">
                 <div className="w-[220px] px-3 py-2.5 bg-obsidian border border-amber-500/40 rounded-lg shadow-xl">
                   <h4 className="text-xs font-sans font-medium text-amber-400 mb-1">Disco Mode</h4>
                   <p className="text-[10px] text-ash/70 font-mono leading-relaxed">
