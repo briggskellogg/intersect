@@ -31,14 +31,8 @@ function App() {
   // Initialize app
   useEffect(() => {
     async function init() {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/962f7550-5ed1-4eac-a6be-f678c82650b8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:init-start',message:'Init started',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       try {
         const initResult = await initApp();
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/962f7550-5ed1-4eac-a6be-f678c82650b8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:after-initApp',message:'initApp completed',data:{initResult},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
         
         // Check if recovery is needed from a previous crash/force-quit
         if (initResult.status === 'recovery_needed') {
@@ -46,9 +40,6 @@ function App() {
         }
         
         const profile = await getUserProfile();
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/962f7550-5ed1-4eac-a6be-f678c82650b8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:after-getUserProfile',message:'getUserProfile completed',data:{hasApiKey:!!profile.apiKey,hasAnthropicKey:!!profile.anthropicKey},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
         setUserProfile(profile);
         
         // Check if BOTH API keys are needed (require OpenAI AND Anthropic)
@@ -57,23 +48,14 @@ function App() {
         } else {
           // Load active persona profile (3 profiles are auto-created on init)
           const activePersona = await getActivePersonaProfile();
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/962f7550-5ed1-4eac-a6be-f678c82650b8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:after-getActivePersona',message:'getActivePersonaProfile completed',data:{hasPersona:!!activePersona},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
-          // #endregion
           if (activePersona) {
             setActivePersonaProfile(activePersona);
           }
         }
       } catch (err) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/962f7550-5ed1-4eac-a6be-f678c82650b8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:init-error',message:'Init error',data:{error:String(err)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
-        // #endregion
         console.error('Failed to initialize:', err);
         setNeedsApiKey(true);
       } finally {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/962f7550-5ed1-4eac-a6be-f678c82650b8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:init-finally',message:'Init finally block',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{});
-        // #endregion
         setIsLoading(false);
       }
     }

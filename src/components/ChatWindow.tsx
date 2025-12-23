@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { confirm } from '@tauri-apps/plugin-dialog';
@@ -70,6 +71,11 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
     actionLabel?: string;
     onAction?: () => void;
   } | null>(null);
+  
+  // Disco tooltip state for fixed positioning (bypasses z-index issues)
+  const [showDiscoTooltip, setShowDiscoTooltip] = useState(false);
+  const [discoTooltipPos, setDiscoTooltipPos] = useState({ x: 0, y: 0 });
+  const discoButtonRef = useRef<HTMLButtonElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const hasInitialized = useRef(false);
@@ -123,10 +129,6 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
       }
       hasInitialized.current = true;
       
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/962f7550-5ed1-4eac-a6be-f678c82650b8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatWindow.tsx:initConversation-start',message:'initConversation starting',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
-      
       try {
         // Create a new conversation
         const conv = await createConversation();
@@ -137,16 +139,8 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
         setThinkingPhase('thinking');
         setThinkingAgent(dominantAgent); // Dominant agent thinking
         
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/962f7550-5ed1-4eac-a6be-f678c82650b8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatWindow.tsx:before-getOpener',message:'About to call getConversationOpener',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
-        
         // Get Governor greeting
         const openerResult = await getConversationOpener();
-        
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/962f7550-5ed1-4eac-a6be-f678c82650b8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatWindow.tsx:after-getOpener',message:'getConversationOpener completed',data:{agent:openerResult.agent},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         
         const openerMessage: Message = {
           id: uuidv4(),
@@ -160,9 +154,6 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
         setIsLoading(false);
         setThinkingAgent(null);
       } catch (err) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/962f7550-5ed1-4eac-a6be-f678c82650b8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatWindow.tsx:initConversation-error',message:'initConversation error',data:{error:String(err)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         console.error('Failed to init conversation:', err);
         setIsLoading(false);
         setThinkingAgent(null);
@@ -797,6 +788,41 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
         onAction={governorNotification?.onAction}
       />
       
+      {/* Disco Mode tooltip - rendered via portal to bypass overflow:hidden on app-container */}
+      {showDiscoTooltip && createPortal(
+        <div 
+          className="fixed z-[9999] pointer-events-none"
+          style={{ 
+            left: discoTooltipPos.x, 
+            top: discoTooltipPos.y + 8,
+            transform: 'translateX(-50%)'
+          }}
+        >
+          <div 
+            className="w-[220px] px-3 py-2.5 bg-obsidian border border-amber-500/40 rounded-lg shadow-xl pointer-events-auto"
+            onMouseEnter={() => setShowDiscoTooltip(true)}
+            onMouseLeave={() => setShowDiscoTooltip(false)}
+          >
+            <h4 className="text-xs font-sans font-medium text-amber-400 mb-1">Disco Mode</h4>
+            <p className="text-[10px] text-ash/70 font-mono leading-relaxed">
+              Agents become intense, opinionated, and challenging. Use when you want to be pushed, not helped.
+            </p>
+            <a 
+              href="https://discoelysium.com" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 mt-2 pt-2 border-t border-smoke/30 text-[9px] text-ash/50 hover:text-amber-400 transition-colors font-mono"
+            >
+              <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" />
+              </svg>
+              Inspired by Disco Elysium
+            </a>
+          </div>
+        </div>,
+        document.body
+      )}
+      
       {/* Header - Clean, centered logo with space for macOS window controls */}
       <header 
         className="flex items-center justify-between px-4 py-2 border-b border-smoke/30 bg-obsidian/80 backdrop-blur-md cursor-default"
@@ -857,9 +883,18 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
             </button>
             
             {/* Disco conversation */}
-            <div className="relative group/disco hover:z-[200]">
+            <div className="relative">
               <button
+                ref={discoButtonRef}
                 onClick={() => handleNewConversation(true)}
+                onMouseEnter={() => {
+                  if (discoButtonRef.current) {
+                    const rect = discoButtonRef.current.getBoundingClientRect();
+                    setDiscoTooltipPos({ x: rect.left + rect.width / 2, y: rect.bottom });
+                    setShowDiscoTooltip(true);
+                  }
+                }}
+                onMouseLeave={() => setShowDiscoTooltip(false)}
                 className={`flex items-center gap-1 px-2 py-1 rounded-full transition-all cursor-pointer ${
                   isDiscoConversation()
                     ? 'bg-amber-500/20 text-amber-400'
@@ -870,32 +905,11 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
                 <BotMessageSquare className="w-4 h-4" strokeWidth={1.5} />
                 <kbd className="text-[8px] font-mono text-ash/40">⌘D</kbd>
               </button>
-              
-              {/* Disco Mode tooltip - appears below */}
-              <div className="absolute top-full left-1/2 -translate-x-1/2 pt-2 opacity-0 invisible group-hover/disco:opacity-100 group-hover/disco:visible transition-all z-[200] pointer-events-none group-hover/disco:pointer-events-auto">
-                <div className="w-[220px] px-3 py-2.5 bg-obsidian border border-amber-500/40 rounded-lg shadow-xl">
-                  <h4 className="text-xs font-sans font-medium text-amber-400 mb-1">Disco Mode</h4>
-                  <p className="text-[10px] text-ash/70 font-mono leading-relaxed">
-                    Agents become intense, opinionated, and challenging. Use when you want to be pushed, not helped.
-                  </p>
-                  <a 
-                    href="https://discoelysium.com" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1 mt-2 pt-2 border-t border-smoke/30 text-[9px] text-ash/50 hover:text-amber-400 transition-colors font-mono"
-                  >
-                    <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" />
-                    </svg>
-                    Inspired by Disco Elysium
-                  </a>
-                </div>
-              </div>
             </div>
           </div>
           
           {/* Agent toggles - in a pill container */}
-          <div className="flex items-center gap-1.5 bg-charcoal/60 rounded-full px-2 py-1.5 border border-smoke/30 relative z-0">
+          <div className="flex items-center gap-1.5 bg-charcoal/60 rounded-full px-2 py-1.5 border border-smoke/30">
             {AGENT_ORDER.map((agentId, index) => {
               // Use disco agents config if in disco conversation
               const isDisco = isDiscoConversation();
