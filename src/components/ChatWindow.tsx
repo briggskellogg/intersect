@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { confirm } from '@tauri-apps/plugin-dialog';
-import { MessageSquare, BotMessageSquare, ShieldCheck, X, Minus, Square, Mic, Sparkles } from 'lucide-react';
+import { MessageSquare, BotMessageSquare, ShieldCheck, X, Minus, Square, Mic } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { ProfileSwitcher } from './ProfileSwitcher';
@@ -853,7 +853,6 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
               {/* Disco Mode tooltip - appears above */}
               <div className="absolute bottom-full left-1/2 -translate-x-1/2 pb-2 opacity-0 invisible group-hover/disco:opacity-100 group-hover/disco:visible transition-all z-50 pointer-events-none group-hover/disco:pointer-events-auto">
                 <div className="w-[220px] px-3 py-2.5 bg-obsidian border border-amber-500/40 rounded-lg shadow-xl">
-                  <Sparkles className="absolute top-2.5 right-2 w-3 h-3 text-amber-500/60" strokeWidth={2} />
                   <h4 className="text-xs font-sans font-medium text-amber-400 mb-1">Disco Mode</h4>
                   <p className="text-[10px] text-ash/70 font-mono leading-relaxed">
                     Agents become intense, opinionated, and challenging. Use when you want to be pushed, not helped.

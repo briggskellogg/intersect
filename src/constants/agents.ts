@@ -47,11 +47,11 @@ export const AGENTS: Record<AgentType, AgentConfig> = {
 };
 
 // Disco mode agents - challenging, opinionated, personality-forward
-// Same agent IDs but different names, avatars, and slightly warmer colors
+// Different names and avatars from normal mode
 export const DISCO_AGENTS: Record<AgentType, AgentConfig> = {
   instinct: {
     id: 'instinct',
-    name: 'Snap',
+    name: 'Swarm',
     color: '#F59E0B', // Amber - more intense
     softColor: '#F59E0B15',
     description: 'Raw impulse, unfiltered instinct, the part that moves before thinking',
@@ -59,7 +59,7 @@ export const DISCO_AGENTS: Record<AgentType, AgentConfig> = {
   },
   logic: {
     id: 'logic',
-    name: 'Dot',
+    name: 'Spin',
     color: '#22D3EE', // Brighter cyan
     softColor: '#22D3EE15',
     description: 'Cold analysis, pattern recognition, the part that sees contradictions',
@@ -67,7 +67,7 @@ export const DISCO_AGENTS: Record<AgentType, AgentConfig> = {
   },
   psyche: {
     id: 'psyche',
-    name: 'Puff',
+    name: 'Storm',
     color: '#C084FC', // Brighter purple
     softColor: '#C084FC15',
     description: 'Deep intuition, emotional truth, the part that knows what you\'re avoiding',
