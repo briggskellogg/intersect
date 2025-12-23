@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { confirm } from '@tauri-apps/plugin-dialog';
-import { MessageSquare, BotMessageSquare, ShieldCheck, X, Minus, Square, Mic } from 'lucide-react';
+import { MessageSquare, BotMessageSquare, ShieldCheck, X, Minus, Square, Mic, Sparkles } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { ProfileSwitcher } from './ProfileSwitcher';
@@ -850,21 +850,24 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
                 <kbd className="text-[8px] font-mono text-ash/40">⌘D</kbd>
               </button>
               
-              {/* Disco Mode tooltip */}
-              <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 w-[280px] px-4 py-3 bg-obsidian/95 border border-amber-500/30 rounded-xl opacity-0 invisible group-hover/disco:opacity-100 group-hover/disco:visible transition-all shadow-xl z-50 pointer-events-none group-hover/disco:pointer-events-auto">
-                <h4 className="text-sm font-sans font-semibold text-amber-400 mb-2">Disco Mode</h4>
-                <p className="text-xs text-silver/80 font-mono leading-relaxed mb-2">
-                  Start a new conversation where the agents are intense, opinionated, and challenging. Inspired by the skill mechanics in{' '}
-                  <a 
-                    href="https://discoelysium.com" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-amber-400 hover:text-amber-300 underline underline-offset-2"
-                  >
-                    Disco Elysium
-                  </a>
-                  . Use when you want to be pushed more than helped.
+              {/* Disco Mode tooltip - appears above */}
+              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-[220px] px-3 py-2.5 bg-obsidian border border-amber-500/40 rounded-lg opacity-0 invisible group-hover/disco:opacity-100 group-hover/disco:visible transition-all shadow-xl z-50 pointer-events-none group-hover/disco:pointer-events-auto">
+                <Sparkles className="absolute top-2 right-2 w-3 h-3 text-amber-500/60" strokeWidth={2} />
+                <h4 className="text-xs font-sans font-medium text-amber-400 mb-1">Disco Mode</h4>
+                <p className="text-[10px] text-ash/70 font-mono leading-relaxed">
+                  Agents become intense, opinionated, and challenging. Use when you want to be pushed, not helped.
                 </p>
+                <a 
+                  href="https://discoelysium.com" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 mt-2 pt-2 border-t border-smoke/30 text-[9px] text-ash/50 hover:text-amber-400 transition-colors font-mono"
+                >
+                  <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" />
+                  </svg>
+                  Inspired by Disco Elysium
+                </a>
               </div>
             </div>
           </div>
