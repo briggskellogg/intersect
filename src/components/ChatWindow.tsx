@@ -1119,21 +1119,21 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
             />
             {/* Placeholder with styled slash */}
             {!inputValue && !isTranscribing && (
-              <div className="absolute left-16 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none">
-                <span className="text-ash/40 font-mono text-sm">Press</span>
-                <kbd className="p-1 bg-smoke/30 rounded-md text-ash/60 font-mono text-xs border border-smoke/40 aspect-square flex items-center justify-center">/</kbd>
-                <span className="text-ash/40 font-mono text-sm">to chat</span>
+              <div className="absolute left-14 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none">
+                <span className="text-ash/40 font-mono text-sm leading-none">Press</span>
+                <kbd className="px-1 py-0.5 bg-smoke/30 rounded-md text-ash/60 font-mono text-xs border border-smoke/40 flex items-center justify-center leading-none">/</kbd>
+                <span className="text-ash/40 font-mono text-sm leading-none">to chat</span>
               </div>
             )}
             {/* Transcribing placeholder - animated */}
             {!inputValue && isTranscribing && (
-              <div className="absolute left-16 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none">
-                <span className="font-mono text-sm" style={{ color: 'rgba(234, 179, 8, 0.6)' }}>Listening</span>
+              <div className="absolute left-14 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none">
+                <span className="font-mono text-sm leading-none" style={{ color: 'rgba(234, 179, 8, 0.6)' }}>Listening</span>
                 <span className="flex gap-0.5">
                   {[0, 1, 2].map((i) => (
                     <motion.span
                       key={i}
-                      className="font-mono text-sm"
+                      className="font-mono text-sm leading-none"
                       style={{ color: 'rgba(234, 179, 8, 0.6)' }}
                       animate={{ opacity: [0.3, 1, 0.3] }}
                       transition={{ duration: 1, repeat: Infinity, delay: i * 0.2, ease: 'easeInOut' }}
