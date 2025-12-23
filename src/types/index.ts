@@ -1,8 +1,8 @@
 // Agent types
 export type AgentType = 'instinct' | 'logic' | 'psyche';
 
-// Agent mode: off, on, or disco (extreme mode inspired by Disco Elysium)
-export type AgentMode = 'off' | 'on' | 'disco';
+// Agent mode: simple on/off (disco is now conversation-level, not per-agent)
+export type AgentMode = 'off' | 'on';
 
 export type ResponseType = 'primary' | 'addition' | 'rebuttal' | 'debate';
 
@@ -87,6 +87,7 @@ export interface Conversation {
   id: string;
   title: string | null;
   summary: string | null;
+  isDisco: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

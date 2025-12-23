@@ -153,19 +153,21 @@ export async function deletePersonaProfile(profileId: string): Promise<void> {
 }
 
 // Conversations
-export async function createConversation(): Promise<Conversation> {
+export async function createConversation(isDisco: boolean = false): Promise<Conversation> {
   const conv = await invoke<{
     id: string;
     title: string | null;
     summary: string | null;
+    is_disco: boolean;
     created_at: string;
     updated_at: string;
-  }>('create_conversation');
+  }>('create_conversation', { isDisco });
   
   return {
     id: conv.id,
     title: conv.title,
     summary: conv.summary,
+    isDisco: conv.is_disco,
     createdAt: new Date(conv.created_at),
     updatedAt: new Date(conv.updated_at),
   };
@@ -176,6 +178,7 @@ export async function getRecentConversations(limit: number): Promise<Conversatio
     id: string;
     title: string | null;
     summary: string | null;
+    is_disco: boolean;
     created_at: string;
     updated_at: string;
   }[]>('get_recent_conversations', { limit });
@@ -184,6 +187,7 @@ export async function getRecentConversations(limit: number): Promise<Conversatio
     id: c.id,
     title: c.title,
     summary: c.summary,
+    isDisco: c.is_disco,
     createdAt: new Date(c.created_at),
     updatedAt: new Date(c.updated_at),
   }));
@@ -235,13 +239,13 @@ export async function sendMessage(
   conversationId: string,
   userMessage: string,
   activeAgents: AgentType[],
-  discoAgents: AgentType[] = []
+  isDisco: boolean = false
 ): Promise<SendMessageResult> {
   return invoke<SendMessageResult>('send_message', {
     conversationId,
     userMessage,
     activeAgents,
-    discoAgents,
+    isDisco,
   });
 }
 

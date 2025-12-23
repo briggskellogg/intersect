@@ -34,6 +34,7 @@ pub struct ConversationInfo {
     pub id: String,
     pub title: Option<String>,
     pub summary: Option<String>,
+    pub is_disco: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -283,13 +284,14 @@ fn delete_persona_profile(profile_id: String) -> Result<(), String> {
 // ============ Conversations ============
 
 #[tauri::command]
-fn create_conversation() -> Result<ConversationInfo, String> {
+fn create_conversation(is_disco: bool) -> Result<ConversationInfo, String> {
     let id = Uuid::new_v4().to_string();
-    let conv = db::create_conversation(&id).map_err(|e| e.to_string())?;
+    let conv = db::create_conversation(&id, is_disco).map_err(|e| e.to_string())?;
     Ok(ConversationInfo {
         id: conv.id,
         title: conv.title,
         summary: conv.summary,
+        is_disco: conv.is_disco,
         created_at: conv.created_at,
         updated_at: conv.updated_at,
     })
@@ -302,6 +304,7 @@ fn get_recent_conversations(limit: usize) -> Result<Vec<ConversationInfo>, Strin
         id: c.id,
         title: c.title,
         summary: c.summary,
+        is_disco: c.is_disco,
         created_at: c.created_at,
         updated_at: c.updated_at,
     }).collect())
@@ -728,7 +731,7 @@ async fn send_message(
     conversation_id: String,
     user_message: String,
     active_agents: Vec<String>,
-    disco_agents: Vec<String>,
+    is_disco: bool,
 ) -> Result<SendMessageResult, String> {
     // Get profile for API keys and weights
     let profile = db::get_user_profile().map_err(|e| e.to_string())?;
@@ -823,7 +826,7 @@ async fn send_message(
             current_weights,
             engagement_analysis.as_ref(),
             intrinsic_analysis.as_ref(),
-            &disco_agents,
+            is_disco,
             profile.total_messages,
         );
         
@@ -858,7 +861,7 @@ async fn send_message(
             initial_weights, 
             &active_agents,
             user_profile.as_ref(),
-            &disco_agents,
+            is_disco,
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -872,11 +875,11 @@ async fn send_message(
         .ok_or_else(|| format!("Invalid agent: {}", decision.primary_agent))?;
     agents_involved.push(primary_agent.as_str().to_string());
     
-    // Check if primary agent is in disco mode
-    let primary_is_disco = disco_agents.contains(&primary_agent.as_str().to_string());
-    if primary_is_disco {
+    // Check if this is a disco conversation
+    let primary_is_disco = is_disco;
+    if is_disco {
         logging::log_agent(Some(&conversation_id), &format!(
-            "{} is in DISCO MODE - using extreme prompts", primary_agent.as_str()
+            "{} in DISCO CONVERSATION - using extreme prompts", primary_agent.as_str()
         ));
     }
     
@@ -940,7 +943,6 @@ async fn send_message(
                 for (idx, agent_str) in remaining_agents.iter().enumerate() {
                     if let Some(agent) = Agent::from_str(agent_str) {
                         agents_involved.push(agent.as_str().to_string());
-                        let is_disco = disco_agents.contains(agent_str);
                         
                         let response_type = if idx == 0 { ResponseType::Addition } else { ResponseType::Addition };
                         
@@ -954,8 +956,8 @@ async fn send_message(
                                 Some(primary_agent.as_str()),
                                 grounding.as_ref(),
                                 user_profile.as_ref(),
-                                is_disco,
-                                primary_is_disco,
+                                is_disco, // Conversation-level disco
+                                is_disco, // primary_is_disco same as is_disco now
                             )
                             .await
                             .map_err(|e| e.to_string())?;
@@ -997,11 +999,10 @@ async fn send_message(
                     _ => None,
                 };
                 
-                // Check if secondary agent is in disco mode
-                let secondary_is_disco = disco_agents.contains(&secondary_agent.as_str().to_string());
-                if secondary_is_disco {
+                // In disco conversation, all agents use disco prompts
+                if is_disco {
                     logging::log_agent(Some(&conversation_id), &format!(
-                        "{} is in DISCO MODE - using extreme prompts", secondary_agent.as_str()
+                        "{} in DISCO CONVERSATION - using extreme prompts", secondary_agent.as_str()
                     ));
                 }
                 
@@ -1015,8 +1016,8 @@ async fn send_message(
                         Some(primary_agent.as_str()),
                         grounding.as_ref(),
                         user_profile.as_ref(),
-                        secondary_is_disco,
-                        primary_is_disco, // Pass whether primary was in disco mode for subtle pushback
+                        is_disco, // Conversation-level disco
+                        is_disco, // primary_is_disco same as is_disco now
                     )
                     .await
                     .map_err(|e| e.to_string())?;
@@ -1058,7 +1059,7 @@ async fn send_message(
                     
                     let mut last_response = secondary_response.clone();
                     let mut last_agent = secondary_agent.as_str().to_string();
-                    let mut last_agent_disco = secondary_is_disco;
+                    let mut _last_agent_disco = is_disco; // In disco conversations, all agents use disco mode
                     let mut last_msg_id = secondary_msg.id.clone();
                     let mut current_weights = final_weights;
                     
@@ -1071,7 +1072,7 @@ async fn send_message(
                                 &user_message,
                                 &responses_so_far,
                                 &active_agents,
-                                &disco_agents,
+                                is_disco,
                                 response_count,
                             )
                             .await
@@ -1093,10 +1094,8 @@ async fn send_message(
                                     .and_then(|t| ResponseType::from_str(t))
                                     .unwrap_or(ResponseType::Rebuttal);
                                 
-                                let next_is_disco = disco_agents.contains(&next_agent.as_str().to_string());
-                                
                                 logging::log_agent(Some(&conversation_id), &format!(
-                                    "Debate turn {}: {} responding (disco: {})", turn + 1, next_agent.as_str(), next_is_disco
+                                    "Debate turn {}: {} responding (disco: {})", turn + 1, next_agent.as_str(), is_disco
                                 ));
                                 
                                 let next_response = orchestrator
@@ -1109,8 +1108,8 @@ async fn send_message(
                                         Some(&last_agent),
                                         grounding.as_ref(),
                                         user_profile.as_ref(),
-                                        next_is_disco,
-                                        last_agent_disco,
+                                        is_disco, // Conversation-level disco
+                                        is_disco, // last_agent_disco same as is_disco now
                                     )
                                     .await
                                     .map_err(|e| e.to_string())?;
@@ -1145,7 +1144,7 @@ async fn send_message(
                                 responses_so_far.push((next_agent.as_str().to_string(), next_response.clone()));
                                 last_response = next_response;
                                 last_agent = next_agent.as_str().to_string();
-                                last_agent_disco = next_is_disco;
+                                _last_agent_disco = is_disco; // All agents in disco conversation use disco mode
                                 last_msg_id = next_msg_id;
                                 
                                 // Intensify debate mode if we're continuing

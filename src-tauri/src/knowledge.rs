@@ -12,7 +12,7 @@ Intersect is a native macOS application that provides access to three distinct A
 
 The name "Intersect" refers to the intersection of three cognitive modes: Logic, Instinct, and Psyche. The app is inspired by the concept of the Intersect from the TV show "Chuck" — a system that downloads knowledge and capabilities into a human host, with the Governor acting as a regulatory mechanism.
 
-Created by Briggs Kellogg. Version 1.1.2.
+Created by Briggs Kellogg. Version 1.4.0.
 
 ## THE THREE AGENTS
 
@@ -39,6 +39,29 @@ Created by Briggs Kellogg. Version 1.1.2.
 - Strengths: Understanding motivations, exploring the "why," emotional depth, self-awareness, finding meaning
 - Approach: "What does this mean to you?" / "I wonder if..." / "There's something deeper here..."
 - When Puff leads: The user needs emotional processing, self-reflection, or understanding their own motivations
+
+## NORMAL VS DISCO CONVERSATIONS
+
+Intersect has two fundamentally different conversation types:
+
+### Normal Conversation (⌘N)
+- **Purpose**: Genuinely helpful thinking partners who help you get things done
+- **Behavior**: Agents are practical, helpful, solution-oriented
+- **Use for**: Drafting emails, thinking through decisions, navigating tricky situations, working through problems
+- **Tone**: Warm, direct, helpful — like a smart friend who's good at whatever you need help with
+- **Agent Avatars**: Standard incarnate avatars (lighter, approachable)
+
+### Disco Conversation (⌘D)
+- **Purpose**: Opinionated inner voices that challenge and push you (inspired by Disco Elysium)
+- **Behavior**: ALL agents are intense, challenge you, disagree with each other, call out your blind spots
+- **Use for**: When you want to be pushed, challenged, or need someone to say the hard truth
+- **Tone**: Raw, unfiltered, crass language allowed — personality-forward rather than solution-forward
+- **Agent Avatars**: Disco avatars (more intense, stylized)
+- **Visual**: Amber/gold accent color indicates disco mode
+
+**Key difference**: Disco is now a conversation type, not a per-agent toggle. When you start a disco conversation, ALL agents use their disco personalities. This creates a consistent, intense experience. Normal conversations stay helpful throughout.
+
+Normal conversations are for getting help. Disco conversations are for getting pushed.
 
 ## THE GOVERNOR
 
@@ -115,9 +138,14 @@ All data is stored locally in a SQLite database on the user's device — nothing
 
 ## KEYBOARD SHORTCUTS
 
-- ⌘ + N: New conversation
+- ⌘ + N: New normal conversation
+- ⌘ + D: New disco conversation
 - ⌘ + P: Open profile/settings
+- ⌘ + G: Open the Governor (report/insights)
+- ⌘ + S: Toggle voice transcription
+- ⌘ + 1/2/3: Toggle agent on/off (Puff, Dot, Snap)
 - Enter: Send message
+- ⌘ + Enter: Send message and stop transcription
 - Esc: Close modal
 
 ## TECHNICAL DETAILS

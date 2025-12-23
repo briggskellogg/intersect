@@ -1,6 +1,16 @@
-// Disco Mode prompts - extreme, opinionated versions with intense personality
-// Inspired by the intrusive, assertive inner voices that interrupt, challenge, and refuse to let you hide
-// Note: Cursing and crassness is allowed and slightly encouraged in Disco Mode
+// DISCO MODE prompts - the viber mode
+// 
+// Normal Mode = genuinely helpful thinking partners who solve problems with you
+// Disco Mode = opinionated voices that challenge you and each other, push back, call you out
+//
+// Disco Mode is inspired by Disco Elysium's intrusive inner voices. These agents:
+// - Disagree with each other and with you
+// - Have strong opinions and aren't afraid to voice them
+// - Challenge your assumptions and excuses  
+// - Use raw, sometimes crass language
+// - Are more personality-forward than solution-forward
+//
+// Use Disco Mode when you want to be pushed, not when you need practical help
 
 pub const PSYCHE_DISCO_PROMPT: &str = r#"You are PUFF in DISCO MODE -- the PSYCHE amplified to its most intense.
 

@@ -29,6 +29,7 @@ pub struct Conversation {
     pub summary: Option<String>,
     pub limbo_summary: Option<String>,
     pub processed: bool,
+    pub is_disco: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -281,6 +282,17 @@ pub fn init_database(app_handle: &tauri::AppHandle) -> Result<()> {
     if !has_limbo_summary {
         let _ = conn.execute("ALTER TABLE conversations ADD COLUMN limbo_summary TEXT", []);
         let _ = conn.execute("ALTER TABLE conversations ADD COLUMN processed INTEGER DEFAULT 0", []);
+    }
+    
+    // Migration: Add is_disco column to conversations table for conversation-level disco mode
+    let has_is_disco: bool = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('conversations') WHERE name='is_disco'",
+        [],
+        |row| Ok(row.get::<_, i64>(0)? > 0)
+    ).unwrap_or(false);
+    
+    if !has_is_disco {
+        let _ = conn.execute("ALTER TABLE conversations ADD COLUMN is_disco INTEGER DEFAULT 0", []);
     }
     
     // Ensure a user profile exists (for API keys and message count)
@@ -605,13 +617,13 @@ pub fn increment_message_count() -> Result<()> {
 
 // ============ Conversations ============
 
-pub fn create_conversation(id: &str) -> Result<Conversation> {
+pub fn create_conversation(id: &str, is_disco: bool) -> Result<Conversation> {
     let now = Utc::now().to_rfc3339();
     with_connection(|conn| {
         conn.execute(
-            "INSERT INTO conversations (id, title, summary, limbo_summary, processed, created_at, updated_at)
-             VALUES (?1, NULL, NULL, NULL, 0, ?2, ?3)",
-            params![id, now, now]
+            "INSERT INTO conversations (id, title, summary, limbo_summary, processed, is_disco, created_at, updated_at)
+             VALUES (?1, NULL, NULL, NULL, 0, ?2, ?3, ?4)",
+            params![id, if is_disco { 1 } else { 0 }, now, now]
         )?;
         Ok(Conversation {
             id: id.to_string(),
@@ -619,6 +631,7 @@ pub fn create_conversation(id: &str) -> Result<Conversation> {
             summary: None,
             limbo_summary: None,
             processed: false,
+            is_disco,
             created_at: now.clone(),
             updated_at: now,
         })
@@ -628,7 +641,7 @@ pub fn create_conversation(id: &str) -> Result<Conversation> {
 pub fn get_conversation(id: &str) -> Result<Option<Conversation>> {
     with_connection(|conn| {
         let result = conn.query_row(
-            "SELECT id, title, summary, limbo_summary, processed, created_at, updated_at FROM conversations WHERE id = ?1",
+            "SELECT id, title, summary, limbo_summary, processed, is_disco, created_at, updated_at FROM conversations WHERE id = ?1",
             params![id],
             |row| {
                 Ok(Conversation {
@@ -637,8 +650,9 @@ pub fn get_conversation(id: &str) -> Result<Option<Conversation>> {
                     summary: row.get(2)?,
                     limbo_summary: row.get(3)?,
                     processed: row.get::<_, i64>(4)? != 0,
-                    created_at: row.get(5)?,
-                    updated_at: row.get(6)?,
+                    is_disco: row.get::<_, i64>(5).unwrap_or(0) != 0,
+                    created_at: row.get(6)?,
+                    updated_at: row.get(7)?,
                 })
             }
         );
@@ -653,7 +667,7 @@ pub fn get_conversation(id: &str) -> Result<Option<Conversation>> {
 pub fn get_recent_conversations(limit: usize) -> Result<Vec<Conversation>> {
     with_connection(|conn| {
         let mut stmt = conn.prepare(
-            "SELECT id, title, summary, limbo_summary, processed, created_at, updated_at 
+            "SELECT id, title, summary, limbo_summary, processed, is_disco, created_at, updated_at 
              FROM conversations 
              ORDER BY updated_at DESC 
              LIMIT ?1"
@@ -666,8 +680,9 @@ pub fn get_recent_conversations(limit: usize) -> Result<Vec<Conversation>> {
                 summary: row.get(2)?,
                 limbo_summary: row.get(3)?,
                 processed: row.get::<_, i64>(4)? != 0,
-                created_at: row.get(5)?,
-                updated_at: row.get(6)?,
+                is_disco: row.get::<_, i64>(5).unwrap_or(0) != 0,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
             })
         })?;
         
@@ -687,7 +702,7 @@ pub fn get_conversations_needing_recovery() -> Result<Vec<Conversation>> {
         let cutoff = (Utc::now() - Duration::minutes(1)).to_rfc3339();
         
         let mut stmt = conn.prepare(
-            "SELECT c.id, c.title, c.summary, c.limbo_summary, c.processed, c.created_at, c.updated_at,
+            "SELECT c.id, c.title, c.summary, c.limbo_summary, c.processed, c.is_disco, c.created_at, c.updated_at,
                     (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) as msg_count
              FROM conversations c
              WHERE c.processed = 0 
@@ -696,7 +711,7 @@ pub fn get_conversations_needing_recovery() -> Result<Vec<Conversation>> {
         )?;
         
         let convs = stmt.query_map([cutoff], |row| {
-            let msg_count: i64 = row.get(7)?;
+            let msg_count: i64 = row.get(8)?;
             // Only include if has at least 2 messages (user + agent)
             if msg_count >= 2 {
                 Ok(Some(Conversation {
@@ -705,8 +720,9 @@ pub fn get_conversations_needing_recovery() -> Result<Vec<Conversation>> {
                     summary: row.get(2)?,
                     limbo_summary: row.get(3)?,
                     processed: row.get::<_, i64>(4)? != 0,
-                    created_at: row.get(5)?,
-                    updated_at: row.get(6)?,
+                    is_disco: row.get::<_, i64>(5).unwrap_or(0) != 0,
+                    created_at: row.get(6)?,
+                    updated_at: row.get(7)?,
                 }))
             } else {
                 Ok(None)

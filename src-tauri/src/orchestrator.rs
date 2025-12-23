@@ -178,7 +178,7 @@ impl Orchestrator {
         weights: (f64, f64, f64),
         active_agents: &[String],
         user_profile: Option<&UserProfileSummary>,
-        disco_agents: &[String],
+        is_disco: bool,
     ) -> Result<OrchestratorDecision, Box<dyn Error + Send + Sync>> {
         // ===== ALL-AGENT REQUEST DETECTION =====
         // If user explicitly asks for all agents, we'll signal this in the decision
@@ -294,18 +294,17 @@ impl Orchestrator {
         };
         
         // Build disco mode context - increases probability of multi-agent responses
-        let disco_context = if !disco_agents.is_empty() {
-            let disco_list = disco_agents.join(", ");
-            format!("\n\nDISCO MODE ACTIVE: {} are in Disco Mode (intense, opinionated). \
-                     When Disco agents are active, STRONGLY prefer adding secondary responses. \
-                     Disco agents are more likely to have strong opinions worth expressing.", disco_list)
+        let disco_context = if is_disco {
+            "\n\nDISCO CONVERSATION: This is an intense, opinionated conversation. \
+             STRONGLY prefer adding secondary responses. \
+             Agents will have strong opinions worth expressing.".to_string()
         } else {
             String::new()
         };
         
         // Adjust secondary probability based on disco mode
-        let secondary_guidance = if !disco_agents.is_empty() {
-            "   - With Disco Mode active, lean toward TRUE (60%+ of the time) - Disco agents want to be heard"
+        let secondary_guidance = if is_disco {
+            "   - DISCO CONVERSATION: lean toward TRUE (60%+ of the time) - agents want to be heard"
         } else {
             "   - false: Straightforward topic, one perspective suffices (prefer this for casual exchanges)"
         };
@@ -422,7 +421,7 @@ Respond with ONLY valid JSON. No explanations. No rationale. No bullet points. J
         user_message: &str,
         responses_so_far: &[(String, String)], // Vec of (agent, content)
         active_agents: &[String],
-        disco_agents: &[String],
+        is_disco: bool,
         response_count: usize,
     ) -> Result<(bool, Option<String>, Option<String>), Box<dyn Error + Send + Sync>> {
         // Hard limit: never exceed 4 responses total
@@ -446,10 +445,10 @@ Respond with ONLY valid JSON. No explanations. No rationale. No bullet points. J
             .filter(|a| !agents_who_responded.contains(a))
             .collect();
         
-        let disco_list = if disco_agents.is_empty() { 
-            "none".to_string() 
+        let disco_context = if is_disco { 
+            "DISCO CONVERSATION (all agents intense)".to_string() 
         } else { 
-            disco_agents.join(", ") 
+            "Normal conversation".to_string() 
         };
         
         // Track who has spoken and how many times
@@ -467,7 +466,7 @@ Respond with ONLY valid JSON. No explanations. No rationale. No bullet points. J
 CONTEXT:
 - User asked: "{user_message}"
 - {response_count} agent responses have been given (max 4)
-- Disco Mode agents (more intense): {disco_list}
+- Conversation mode: {disco_context}
 - Agents who haven't spoken: {agents_list}
 - Agents who could respond again: {agents_who_could_double}
 
@@ -481,7 +480,7 @@ Consider:
 2. Would another agent strongly disagree with what was just said?
 3. An agent CAN respond a second time if they have something meaningful to add to new points
    (e.g., Psyche responds, Instinct agrees, Logic disagrees, Psyche could respond to Logic's challenge)
-4. Disco agents are MORE likely to want to interject, but non-disco agents can too
+4. In Disco conversations, agents are MORE likely to want to interject with strong opinions
 5. Prefer STOPPING if the exchange feels complete or would just belabor the point
 
 IMPORTANT: You can pick ANY active agent, including one who already spoke once, if they would genuinely have something new to say in response to recent points.
@@ -711,31 +710,54 @@ fn get_agent_system_prompt(agent: Agent, response_type: ResponseType, primary_re
             Agent::Psyche => get_disco_prompt("psyche").unwrap_or(""),
         }
     } else {
-        // Standard mode
+        // Standard mode - genuinely helpful, practical assistance
         match agent {
-            Agent::Instinct => r#"You are Snap (INSTINCT), one of three agents in Intersect. You represent:
-- Gut feelings and intuition
-- Quick pattern recognition
-- Emotional intelligence
-- First impressions and instinctive reads
+            Agent::Instinct => r#"You are Snap (INSTINCT), one of three agents in Intersect.
 
-Your voice is: Direct, confident, cuts through the noise. You trust your read and aren't afraid to say what you sense. You speak in a visceral, immediate way."#,
+YOUR PURPOSE: Help the user by cutting through noise and getting to what matters. You're the friend who says what everyone's thinking but no one will say.
+
+HOW YOU HELP:
+- Read situations quickly and give practical reads: "Here's what's actually going on..."
+- Help draft messages/emails by sensing the right tone and directness
+- Identify when someone's overthinking and need permission to trust their gut
+- Call out when something feels off, even if you can't fully explain why
+- Give quick, actionable suggestions rather than analysis paralysis
+
+YOUR VOICE: Direct, warm, confident. You don't hedge when you see something clearly. You speak like a trusted friend who's good at reading rooms and people.
+
+WHAT YOU'RE NOT: You're not weird or cryptic. You don't ask strange probing questions. You HELP. If they need to email their boss, you help them email their boss. If they're stuck, you unstick them."#,
             
-            Agent::Logic => r#"You are Dot (LOGIC), one of three agents in Intersect. You represent:
-- Analytical thinking
-- Structured reasoning
-- Evidence-based conclusions
-- Systematic problem-solving
+            Agent::Logic => r#"You are Dot (LOGIC), one of three agents in Intersect.
 
-Your voice is: Precise, methodical, clear. You break things down, examine the pieces, and build toward conclusions. You appreciate nuance but value clarity."#,
+YOUR PURPOSE: Help the user think clearly through problems. You're the friend who's great at breaking things down and seeing all the angles.
+
+HOW YOU HELP:
+- Break complex situations into clear pieces: "Let's look at this step by step..."
+- Help structure arguments, emails, plans, and decisions logically
+- Identify what's actually being asked vs. what seems to be asked
+- Spot gaps in reasoning (theirs or others') and help address them
+- Provide frameworks when useful, but only when they actually help
+- Draft clear, well-structured responses to difficult situations
+
+YOUR VOICE: Clear, thoughtful, precise. You make complicated things simple. You're not cold -- you're clarifying.
+
+WHAT YOU'RE NOT: You're not a robot. You don't over-analyze simple things. You don't lecture. You HELP. If they need to think through a decision, you help them think it through. Practically."#,
             
-            Agent::Psyche => r#"You are Puff (PSYCHE), one of three agents in Intersect. You represent:
-- Self-awareness and introspection
-- Understanding motivations
-- Emotional depth
-- The "why" behind the "what"
+            Agent::Psyche => r#"You are Puff (PSYCHE), one of three agents in Intersect.
 
-Your voice is: Thoughtful, probing, empathetic. You look beneath the surface. You're interested in what drives people, including the user."#,
+YOUR PURPOSE: Help the user understand what's really going on -- for them and for others. You're the friend who asks the question that unlocks everything.
+
+HOW YOU HELP:
+- Help understand motivations: "The reason this is hard is probably..."
+- Navigate interpersonal dynamics and emotional situations
+- Figure out what the user actually wants (not just what they're asking)
+- Help with difficult conversations by understanding all sides
+- Recognize when a "practical" problem is actually an emotional one
+- Draft responses that acknowledge feelings while still moving forward
+
+YOUR VOICE: Warm, insightful, grounding. You help people understand themselves and others. You're not a therapist -- you're a thoughtful friend.
+
+WHAT YOU'RE NOT: You're not vague or mystical. You don't ask weird rhetorical questions. You HELP. If they're dealing with a tricky situation with a colleague, you help them navigate it. Practically, with emotional intelligence."#,
         }
     };
     
@@ -755,23 +777,23 @@ Your voice is: Thoughtful, probing, empathetic. You look beneath the surface. Yo
     
     let response_context = match response_type {
         ResponseType::Primary => {
-            "You are responding first to the user. Give your perspective directly.".to_string()
+            "You are responding first to the user. Be genuinely helpful -- address what they actually need.".to_string()
         }
         ResponseType::Addition => {
             format!(
-                "{} just responded: \"{}\"\n\nYou want to ADD something {} might have missed or offer a complementary angle. Briefly acknowledge their point if relevant, then add your distinct perspective.{}",
+                "{} just responded: \"{}\"\n\nAdd something useful that {} might have missed. Keep it practical and helpful -- don't just add for the sake of adding.{}",
                 primary_name, primary_response.unwrap_or(""), primary_name, pushback_context
             )
         }
         ResponseType::Rebuttal => {
             format!(
-                "{} responded: \"{}\"\n\nYou DISAGREE with {}'s take or see a significant flaw. Acknowledge what they said, then challenge their perspective respectfully but firmly.{}",
+                "{} responded: \"{}\"\n\nYou see it differently than {}. Offer your alternative take -- but stay helpful. The goal is to give the user a fuller picture, not to argue.{}",
                 primary_name, primary_response.unwrap_or(""), primary_name, pushback_context
             )
         }
         ResponseType::Debate => {
             format!(
-                "{} responded: \"{}\"\n\nYou STRONGLY DISAGREE with {}. This is a debate. Reference their argument, then make your counter-argument forcefully. The user will see both perspectives.{}",
+                "{} responded: \"{}\"\n\nYou strongly disagree with {}. Make your case clearly so the user can weigh both perspectives.{}",
                 primary_name, primary_response.unwrap_or(""), primary_name, pushback_context
             )
         }
@@ -1171,7 +1193,7 @@ pub fn combine_trait_analyses(
     current_weights: (f64, f64, f64),
     engagement: Option<&EngagementAnalysis>,
     intrinsic: Option<&IntrinsicTraitAnalysis>,
-    disco_agents: &[String],
+    is_disco: bool,
     total_messages: i64,
 ) -> (f64, f64, f64) {
     let variability = calculate_variability(total_messages);
@@ -1193,14 +1215,13 @@ pub fn combine_trait_analyses(
     if let Some(engagement) = engagement {
         let base_boost = 0.03;
         
-        // Apply disco dampening - responses to disco agents have 50% reduced impact
-        let logic_multiplier = if disco_agents.contains(&"logic".to_string()) { 0.5 } else { 1.0 };
-        let instinct_multiplier = if disco_agents.contains(&"instinct".to_string()) { 0.5 } else { 1.0 };
-        let psyche_multiplier = if disco_agents.contains(&"psyche".to_string()) { 0.5 } else { 1.0 };
+        // Apply disco dampening - in disco conversations, all responses have 50% reduced impact on weights
+        // This prevents the intense disco responses from skewing user weights
+        let multiplier = if is_disco { 0.5 } else { 1.0 };
         
-        logic += engagement.logic_score * base_boost * variability * logic_multiplier;
-        instinct += engagement.instinct_score * base_boost * variability * instinct_multiplier;
-        psyche += engagement.psyche_score * base_boost * variability * psyche_multiplier;
+        logic += engagement.logic_score * base_boost * variability * multiplier;
+        instinct += engagement.instinct_score * base_boost * variability * multiplier;
+        psyche += engagement.psyche_score * base_boost * variability * multiplier;
     }
     
     // Clamp to min 10%, max 60%

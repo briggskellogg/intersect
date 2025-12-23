@@ -2,13 +2,13 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { confirm } from '@tauri-apps/plugin-dialog';
-import { MessageSquarePlus, PartyPopper, ShieldCheck, X, Minus, Square, Mic } from 'lucide-react';
+import { MessageSquarePlus, Zap, ShieldCheck, X, Minus, Square, Mic } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { ProfileSwitcher } from './ProfileSwitcher';
 import { useAppStore } from '../store';
 import { Message, AgentType, DebateMode } from '../types';
-import { AGENTS, AGENT_ORDER, USER_PROFILES } from '../constants/agents';
+import { AGENTS, DISCO_AGENTS, AGENT_ORDER, USER_PROFILES } from '../constants/agents';
 import { 
   sendMessage, 
   createConversation, 
@@ -39,10 +39,9 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
     currentConversation,
     setCurrentConversation,
     getActiveAgentsList,
-    getDiscoAgents,
     agentModes,
-    cycleAgentMode,
-    toggleAllDisco,
+    toggleAgentMode,
+    isDiscoConversation,
     debateMode,
     setDebateMode,
     isLoading,
@@ -349,7 +348,11 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
         switch (e.key.toLowerCase()) {
           case 'n':
             e.preventDefault();
-            handleNewConversation();
+            handleNewConversation(false); // New normal conversation
+            break;
+          case 'd':
+            e.preventDefault();
+            handleNewConversation(true); // New disco conversation
             break;
           case 'p':
             e.preventDefault();
@@ -359,25 +362,21 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
             e.preventDefault();
             onOpenReport(); // Open The Governor (report)
             break;
-          case 'd':
-            e.preventDefault();
-            toggleAllDisco(); // Toggle Disco Mode
-            break;
           case 's':
             e.preventDefault();
             toggleTranscription(); // Toggle voice transcription
             break;
           case '1':
             e.preventDefault();
-            cycleAgentMode('psyche'); // Toggle Puff (first in UI order)
+            toggleAgentMode('psyche'); // Toggle Puff (first in UI order)
             break;
           case '2':
             e.preventDefault();
-            cycleAgentMode('logic'); // Toggle Dot (second in UI order)
+            toggleAgentMode('logic'); // Toggle Dot (second in UI order)
             break;
           case '3':
             e.preventDefault();
-            cycleAgentMode('instinct'); // Toggle Snap (third in UI order)
+            toggleAgentMode('instinct'); // Toggle Snap (third in UI order)
             break;
         }
         
@@ -402,7 +401,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
     
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [onOpenReport, toggleAllDisco, cycleAgentMode, toggleTranscription, isTranscribing, stopTranscription]);
+  }, [onOpenReport, toggleAgentMode, toggleTranscription, isTranscribing, stopTranscription]);
 
   // Handle send message
   const handleSend = async () => {
@@ -420,7 +419,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
     }
     
     const activeList = getActiveAgentsList();
-    const discoList = getDiscoAgents();
+    const isDisco = isDiscoConversation();
     if (activeList.length === 0) {
       setError('Enable at least one agent');
       return;
@@ -453,7 +452,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
     setThinkingAgent('system'); // Governor is routing
     
     try {
-      const result = await sendMessage(currentConversation.id, content, activeList, discoList);
+      const result = await sendMessage(currentConversation.id, content, activeList, isDisco);
       
       // Set debate mode if applicable
       if (result.debate_mode) {
@@ -490,9 +489,6 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
         // Clear thinking indicator before message appears
         setThinkingAgent(null);
         
-        // Check if this agent was in disco mode when the message was sent
-        const wasInDiscoMode = discoList.includes(response.agent as AgentType);
-        
         const agentMessage: Message = {
           id: uuidv4(),
           conversationId: currentConversation.id,
@@ -501,7 +497,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
           responseType: response.response_type as Message['responseType'],
           referencesMessageId: response.references_message_id || undefined,
           timestamp: new Date(),
-          isDisco: wasInDiscoMode,
+          isDisco, // Conversation-level disco mode
         };
         addMessage(agentMessage);
         
@@ -584,7 +580,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
     if (!currentConversation) return;
     
     const activeList = getActiveAgentsList();
-    const discoList = getDiscoAgents();
+    const isDisco = isDiscoConversation();
     if (activeList.length === 0) return;
     
     // Reset cancel flag
@@ -608,7 +604,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
     setThinkingAgent('system');
     
     try {
-      const result = await sendMessage(currentConversation.id, content, activeList, discoList);
+      const result = await sendMessage(currentConversation.id, content, activeList, isDisco);
       
       if (result.debate_mode) {
         setDebateMode(result.debate_mode as DebateMode);
@@ -633,8 +629,6 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
         await new Promise(r => setTimeout(r, 800));
         setThinkingAgent(null);
         
-        const wasInDiscoMode = discoList.includes(response.agent as AgentType);
-        
         const agentMessage: Message = {
           id: uuidv4(),
           conversationId: currentConversation.id,
@@ -643,7 +637,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
           responseType: response.response_type as Message['responseType'],
           referencesMessageId: response.references_message_id || undefined,
           timestamp: new Date(),
-          isDisco: wasInDiscoMode,
+          isDisco, // Conversation-level disco mode
         };
         addMessage(agentMessage);
         
@@ -689,8 +683,8 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
     }
   };
 
-  // Handle new conversation
-  const handleNewConversation = async () => {
+  // Handle new conversation - isDisco determines if it's a disco or normal conversation
+  const handleNewConversation = async (isDisco: boolean = false) => {
     // Prevent useEffect from also trying to init (race condition fix)
     hasInitialized.current = true;
     
@@ -708,7 +702,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
     setDebateMode(null);
     
     try {
-      const conv = await createConversation();
+      const conv = await createConversation(isDisco);
       setCurrentConversation(conv);
       
       // Dominant agent is greeting the user
@@ -725,6 +719,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
         role: openerResult.agent as Message['role'], // Dominant agent greeting
         content: openerResult.content,
         responseType: 'primary',
+        isDisco, // Mark message as disco if conversation is disco
         timestamp: new Date(),
       };
       addMessage(openerMessage);
@@ -826,7 +821,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
 
           {/* New conversation */}
           <button
-            onClick={handleNewConversation}
+            onClick={() => handleNewConversation(false)}
             className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-ash hover:text-pearl hover:bg-smoke/20 transition-all group cursor-pointer"
             title="New conversation (⌘N)"
           >
@@ -837,30 +832,17 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
           {/* Agent toggles - in a pill container */}
           <div className="flex items-center gap-1.5 bg-charcoal/60 rounded-full px-2 py-1.5 border border-smoke/30">
             {AGENT_ORDER.map((agentId, index) => {
-              const agent = AGENTS[agentId];
+              // Use disco agents config if in disco conversation
+              const isDisco = isDiscoConversation();
+              const agentConfig = isDisco ? DISCO_AGENTS[agentId] : AGENTS[agentId];
               const mode = agentModes[agentId];
               const isActive = mode !== 'off';
-              const isDisco = mode === 'disco';
               const hotkeyNum = index + 1;
-              
-              const greetings: Record<AgentType, string> = {
-                instinct: "I'm Snap. I trust my gut and help you cut through the noise with quick, intuitive reads.",
-                logic: "I'm Dot. I help you think methodically, breaking down problems with structured reasoning.",
-                psyche: "I'm Puff. I explore the 'why' behind everything — your motivations, emotions, and deeper meaning.",
-              };
-              
-              const discoGreetings: Record<AgentType, string> = {
-                instinct: "SNAP UNLEASHED. Pure reptilian brain. I'll tell you what your gut already knows but your head won't admit. No filter, no mercy.",
-                logic: "DOT UNCHAINED. Cold, crystalline precision. I'll dissect your reasoning until only truth remains. Prepare to be corrected.",
-                psyche: "PUFF UNBOUND. The abyss gazes back. I'll drag your buried motivations into the light. You may not like what we find.",
-              };
-              
-              const modeLabel = mode === 'off' ? 'Off' : mode === 'on' ? 'On' : 'Disco Mode';
               
               return (
                 <div key={agentId} className="relative group/agent flex items-center gap-1">
                   <motion.button
-                    onClick={() => cycleAgentMode(agentId)}
+                    onClick={() => toggleAgentMode(agentId)}
                     className={`relative w-5 h-5 rounded-full overflow-visible transition-all ${
                       isActive 
                         ? 'opacity-100' 
@@ -868,25 +850,15 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
                     } cursor-pointer`}
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.9 }}
-                    title={`Toggle ${agent.name} (⌘${hotkeyNum})`}
+                    title={`Toggle ${agentConfig.name} (⌘${hotkeyNum})`}
                   >
                     <div className="w-full h-full rounded-full overflow-hidden">
                       <img 
-                        src={agent.avatar} 
-                        alt={agent.name}
+                        src={agentConfig.avatar} 
+                        alt={agentConfig.name}
                         className="w-full h-full object-cover"
                       />
                     </div>
-                    {/* Disco mode sparkle - top right */}
-                    {isDisco && (
-                      <motion.div
-                        className="absolute -top-0.5 -right-0.5 z-20"
-                        animate={{ rotate: [0, 15, -15, 0], scale: [1, 1.1, 1] }}
-                        transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                      >
-                        <PartyPopper className="w-2.5 h-2.5 text-amber-400" strokeWidth={2.5} />
-                      </motion.div>
-                    )}
                     {/* Active indicator dot - bottom right, overlapping */}
                     {isActive && (
                       <motion.div
@@ -902,33 +874,28 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
                   {/* Hover tooltip */}
                   <div 
                     className="absolute top-full mt-2 left-1/2 -translate-x-1/2 px-3 py-2 bg-obsidian/95 border rounded-lg opacity-0 invisible group-hover/agent:opacity-100 group-hover/agent:visible transition-all shadow-xl w-[200px] z-50 pointer-events-none"
-                    style={{ borderColor: isDisco ? '#EAB30840' : `${agent.color}40` }}
+                    style={{ borderColor: `${agentConfig.color}40` }}
                   >
                     <div className="flex items-center gap-2 mb-1.5">
                       <span 
                         className="text-xs font-sans font-medium"
-                        style={{ color: isDisco ? '#EAB308' : agent.color }}
+                        style={{ color: agentConfig.color }}
                       >
-                        {agent.name}
+                        {agentConfig.name}
                       </span>
                       <span className="text-[9px] text-ash/50 font-mono uppercase">{agentId}</span>
                       <span 
                         className={`text-[8px] px-1.5 py-0.5 rounded-full font-mono uppercase ${
-                          isDisco 
-                            ? 'bg-amber-500/20 text-amber-400' 
-                            : isActive 
-                              ? 'bg-emerald-500/20 text-emerald-400'
-                              : 'bg-smoke/30 text-ash/50'
+                          isActive 
+                            ? 'bg-emerald-500/20 text-emerald-400'
+                            : 'bg-smoke/30 text-ash/50'
                         }`}
                       >
-                        {modeLabel}
+                        {isActive ? 'On' : 'Off'}
                       </span>
                     </div>
                     <p className="text-[10px] text-ash/80 font-mono leading-relaxed">
-                      {isDisco 
-                        ? discoGreetings[agentId]
-                        : greetings[agentId]
-                      }
+                      {agentConfig.description}
                     </p>
                   </div>
                 </div>
@@ -936,49 +903,32 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
             })}
           </div>
           
-          {/* Disco Mode toggle - next to agents */}
-          {(() => {
-            const activeAgents = Object.entries(agentModes).filter(([, mode]) => mode !== 'off');
-            const discoCount = activeAgents.filter(([, mode]) => mode === 'disco').length;
-            const discoState: 'off' | 'partial' | 'on' = 
-              discoCount === 0 ? 'off' : 
-              discoCount === activeAgents.length ? 'on' : 'partial';
+          {/* New Disco Conversation button */}
+          <div className="relative group/disco">
+            <button
+              onClick={() => handleNewConversation(true)}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg transition-all cursor-pointer ${
+                isDiscoConversation()
+                  ? 'bg-amber-500/20 border border-amber-500/50 text-amber-400'
+                  : 'text-ash/50 hover:text-ash hover:bg-smoke/20'
+              }`}
+              title="New Disco conversation (⌘D)"
+            >
+              <Zap 
+                className="w-4 h-4" 
+                strokeWidth={1.5}
+              />
+              <kbd className="text-[8px] font-mono text-ash/40">⌘D</kbd>
+            </button>
             
-            return (
-              <div className="relative group/disco">
-                <motion.button
-                  onClick={toggleAllDisco}
-                  className={`flex items-center gap-1 px-2 py-1 rounded-lg transition-all cursor-pointer ${
-                    discoState === 'on'
-                      ? 'bg-amber-500/20 border border-amber-500/50 text-amber-400'
-                      : discoState === 'partial'
-                        ? 'bg-amber-500/10 text-amber-500/70'
-                        : 'text-ash/50 hover:text-ash hover:bg-smoke/20'
-                  }`}
-                  style={discoState === 'partial' ? {
-                    border: '1px dashed rgba(234, 179, 8, 0.4)',
-                  } : undefined}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  title={discoState === 'on' ? 'Disable Disco Mode (⌘D)' : 'Enable Disco Mode (⌘D)'}
-                >
-                  <PartyPopper 
-                    className={`w-4 h-4 ${discoState === 'partial' ? 'opacity-70' : ''}`} 
-                    strokeWidth={1.5}
-                  />
-                  <kbd className="text-[8px] font-mono text-ash/40">⌘D</kbd>
-                </motion.button>
-                
-                {/* Disco Mode tooltip */}
-                <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 w-[220px] px-3 py-2.5 bg-obsidian/95 border border-amber-500/30 rounded-xl opacity-0 invisible group-hover/disco:opacity-100 group-hover/disco:visible transition-all shadow-xl z-50">
-                  <h4 className="text-xs font-sans font-medium text-amber-500 mb-1">Disco Mode</h4>
-                  <p className="text-[10px] text-silver/80 font-mono leading-relaxed">
-                    Intense, opinionated responses. More visceral and challenging.
-                  </p>
-                </div>
-              </div>
-            );
-          })()}
+            {/* Disco Conversation tooltip */}
+            <div className="absolute top-full mt-2 right-0 w-[240px] px-3 py-2.5 bg-obsidian/95 border border-amber-500/30 rounded-xl opacity-0 invisible group-hover/disco:opacity-100 group-hover/disco:visible transition-all shadow-xl z-50 pointer-events-none">
+              <h4 className="text-xs font-sans font-medium text-amber-500 mb-1">Start Disco Conversation</h4>
+              <p className="text-[10px] text-silver/80 font-mono leading-relaxed">
+                Begin a new conversation where ALL agents are intense, opinionated, and challenging. Inspired by Disco Elysium. Use when you want to be pushed, not helped.
+              </p>
+            </div>
+          </div>
         </div>
         
         {/* Centered logo */}
