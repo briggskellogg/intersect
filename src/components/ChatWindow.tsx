@@ -59,7 +59,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
   // Count active agents for Governor logic (on or disco = active)
   const activeCount = Object.values(agentModes).filter(m => m !== 'off').length;
   
-  const { activePersonaProfile, elevenLabsApiKey } = useAppStore();
+  const { activePersonaProfile, elevenLabsApiKey, isSettingsOpen } = useAppStore();
   
   // Get dominant trait from active persona profile
   const dominantAgent: AgentType = activePersonaProfile?.dominantTrait || 'logic';
@@ -356,16 +356,23 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
             toggleTranscription(); // Toggle voice transcription
             break;
           case '1':
-            e.preventDefault();
-            toggleAgentMode('psyche'); // Toggle Puff (first in UI order)
+            // Skip if Settings is open - let Settings handle profile switching
+            if (!isSettingsOpen) {
+              e.preventDefault();
+              toggleAgentMode('psyche'); // Toggle Puff (first in UI order)
+            }
             break;
           case '2':
-            e.preventDefault();
-            toggleAgentMode('logic'); // Toggle Dot (second in UI order)
+            if (!isSettingsOpen) {
+              e.preventDefault();
+              toggleAgentMode('logic'); // Toggle Dot (second in UI order)
+            }
             break;
           case '3':
-            e.preventDefault();
-            toggleAgentMode('instinct'); // Toggle Snap (third in UI order)
+            if (!isSettingsOpen) {
+              e.preventDefault();
+              toggleAgentMode('instinct'); // Toggle Snap (third in UI order)
+            }
             break;
         }
         
@@ -390,7 +397,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
     
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [onOpenReport, toggleAgentMode, toggleTranscription, isTranscribing, stopTranscription]);
+  }, [onOpenReport, toggleAgentMode, toggleTranscription, isTranscribing, stopTranscription, isSettingsOpen]);
 
   // Handle send message
   const handleSend = async () => {

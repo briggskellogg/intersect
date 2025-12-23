@@ -4,9 +4,9 @@ import { ExternalLink, Loader2, Trash2, Check, AlertCircle, Circle, Mic } from '
 import { saveApiKey, saveAnthropicKey, removeApiKey, removeAnthropicKey, getUserProfile } from '../hooks/useTauri';
 import { useAppStore } from '../store';
 import governorIcon from '../assets/governor-transparent.png';
-import instinctAvatar from '../assets/agents/instinct.png';
-import logicAvatar from '../assets/agents/logic.png';
-import psycheAvatar from '../assets/agents/psyche.png';
+import instinctAvatar from '../assets/agents/instinct-incarnate.png';
+import logicAvatar from '../assets/agents/logic-incarnate.png';
+import psycheAvatar from '../assets/agents/psyche-incarnate.png';
 
 interface ApiKeyModalProps {
   isOpen: boolean;
@@ -230,13 +230,13 @@ export function ApiKeyModal({ isOpen, onComplete, initialOpenAiKey, initialAnthr
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-3">
                     <div className="flex -space-x-2">
-                      <img src={instinctAvatar} alt="Snap" className="w-7 h-7 rounded-full ring-2 ring-obsidian" />
-                      <img src={logicAvatar} alt="Dot" className="w-7 h-7 rounded-full ring-2 ring-obsidian" />
                       <img src={psycheAvatar} alt="Puff" className="w-7 h-7 rounded-full ring-2 ring-obsidian" />
+                      <img src={logicAvatar} alt="Dot" className="w-7 h-7 rounded-full ring-2 ring-obsidian" />
+                      <img src={instinctAvatar} alt="Snap" className="w-7 h-7 rounded-full ring-2 ring-obsidian" />
                     </div>
                     <div>
                       <h3 className="text-sm font-sans text-pearl font-medium">OpenAI</h3>
-                      <p className="text-[10px] text-ash/60 font-mono">Powers Snap, Dot & Puff</p>
+                      <p className="text-[10px] text-ash/60 font-mono">Powers Puff, Dot & Snap</p>
                     </div>
                   </div>
                   <StatusIndicator status={openAiStatus} isLoading={isLoadingOpenAi} />
