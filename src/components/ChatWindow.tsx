@@ -851,23 +851,25 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
               </button>
               
               {/* Disco Mode tooltip - appears above */}
-              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-[220px] px-3 py-2.5 bg-obsidian border border-amber-500/40 rounded-lg opacity-0 invisible group-hover/disco:opacity-100 group-hover/disco:visible transition-all shadow-xl z-50 pointer-events-none group-hover/disco:pointer-events-auto">
-                <Sparkles className="absolute top-2 right-2 w-3 h-3 text-amber-500/60" strokeWidth={2} />
-                <h4 className="text-xs font-sans font-medium text-amber-400 mb-1">Disco Mode</h4>
-                <p className="text-[10px] text-ash/70 font-mono leading-relaxed">
-                  Agents become intense, opinionated, and challenging. Use when you want to be pushed, not helped.
-                </p>
-                <a 
-                  href="https://discoelysium.com" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 mt-2 pt-2 border-t border-smoke/30 text-[9px] text-ash/50 hover:text-amber-400 transition-colors font-mono"
-                >
-                  <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" />
-                  </svg>
-                  Inspired by Disco Elysium
-                </a>
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 pb-2 opacity-0 invisible group-hover/disco:opacity-100 group-hover/disco:visible transition-all z-50 pointer-events-none group-hover/disco:pointer-events-auto">
+                <div className="w-[220px] px-3 py-2.5 bg-obsidian border border-amber-500/40 rounded-lg shadow-xl">
+                  <Sparkles className="absolute top-2.5 right-2 w-3 h-3 text-amber-500/60" strokeWidth={2} />
+                  <h4 className="text-xs font-sans font-medium text-amber-400 mb-1">Disco Mode</h4>
+                  <p className="text-[10px] text-ash/70 font-mono leading-relaxed">
+                    Agents become intense, opinionated, and challenging. Use when you want to be pushed, not helped.
+                  </p>
+                  <a 
+                    href="https://discoelysium.com" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 mt-2 pt-2 border-t border-smoke/30 text-[9px] text-ash/50 hover:text-amber-400 transition-colors font-mono"
+                  >
+                    <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" />
+                    </svg>
+                    Inspired by Disco Elysium
+                  </a>
+                </div>
               </div>
             </div>
           </div>
