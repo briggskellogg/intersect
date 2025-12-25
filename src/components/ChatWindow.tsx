@@ -404,7 +404,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
             e.preventDefault();
             toggleTranscription(); // Toggle voice transcription
             break;
-          case 'a':
+          case 't':
             e.preventDefault();
             // Toggle theme (system -> light -> dark -> system)
             const currentTheme = useAppStore.getState().theme;
@@ -1032,23 +1032,39 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
               );
             })}
             
-            {/* Go Disco! button - enticing pill to discover disco mode */}
-            <motion.button
-              ref={discoInfoButtonRef}
-              onMouseEnter={showDiscoInfoTooltipWithDelay}
-              onMouseLeave={hideDiscoInfoTooltipWithDelay}
-              onClick={() => toggleAllDisco()}
-              className="ml-2 flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/40 text-amber-400 hover:from-amber-500/30 hover:to-orange-500/30 hover:border-amber-400/60 transition-all cursor-pointer group"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              animate={{ 
-                boxShadow: ['0 0 0px rgba(234, 179, 8, 0)', '0 0 8px rgba(234, 179, 8, 0.3)', '0 0 0px rgba(234, 179, 8, 0)']
-              }}
-              transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
-            >
-              <Sparkles className="w-3 h-3 group-hover:animate-pulse" strokeWidth={2} />
-              <span className="text-[9px] font-mono font-medium tracking-wide">DISCO</span>
-            </motion.button>
+            {/* Dynamic Disco pill - shows off/partial/full states */}
+            {(() => {
+              const discoCount = getDiscoAgentsList().length;
+              const isOff = discoCount === 0;
+              const isPartial = discoCount > 0 && discoCount < 3;
+              const isFull = discoCount === 3;
+              
+              return (
+                <motion.button
+                  ref={discoInfoButtonRef}
+                  onMouseEnter={showDiscoInfoTooltipWithDelay}
+                  onMouseLeave={hideDiscoInfoTooltipWithDelay}
+                  onClick={() => toggleAllDisco()}
+                  className={`ml-2 flex items-center gap-1 px-2 py-0.5 rounded-full transition-all cursor-pointer group ${
+                    isOff 
+                      ? 'bg-smoke/20 border border-smoke/40 text-ash/60 hover:bg-smoke/30 hover:text-ash' 
+                      : isPartial
+                        ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-dashed border-amber-500/60 text-amber-400 hover:from-amber-500/30 hover:to-orange-500/30'
+                        : 'bg-gradient-to-r from-amber-500/25 to-orange-500/25 border border-amber-400/70 text-amber-300 hover:from-amber-500/35 hover:to-orange-500/35'
+                  }`}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  animate={isFull ? { 
+                    boxShadow: ['0 0 0px rgba(234, 179, 8, 0)', '0 0 10px rgba(234, 179, 8, 0.4)', '0 0 0px rgba(234, 179, 8, 0)']
+                  } : undefined}
+                  transition={isFull ? { duration: 2, repeat: Infinity, ease: 'easeInOut' } : undefined}
+                >
+                  <Sparkles className={`w-3 h-3 ${isFull ? 'animate-pulse' : ''}`} strokeWidth={2} />
+                  <span className="text-[9px] font-mono font-medium tracking-wide">DISCO</span>
+                  {isPartial && <span className="text-[8px] opacity-70">({discoCount}/3)</span>}
+                </motion.button>
+              );
+            })()}
           </div>
           
         </div>

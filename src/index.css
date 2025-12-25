@@ -109,30 +109,30 @@
 
 /* Light theme overrides */
 html.light {
-  --color-void: #FAFAFA;
+  --color-void: #F8F9FA;
   --color-obsidian: #FFFFFF;
-  --color-charcoal: #F5F5F5;
-  --color-slate: #EEEEEE;
-  --color-smoke: #E0E0E0;
-  --color-ash: #9E9E9E;
-  --color-silver: #757575;
-  --color-pearl: #424242;
-  --color-ivory: #212121;
+  --color-charcoal: #F1F3F4;
+  --color-slate: #E8EAED;
+  --color-smoke: #DADCE0;
+  --color-ash: #5F6368;
+  --color-silver: #3C4043;
+  --color-pearl: #202124;
+  --color-ivory: #000000;
   
-  /* Golden accent - slightly darker for light mode */
-  --color-gold: #B8960D;
-  --color-gold-soft: #B8960D15;
-  --color-gold-glow: #B8960D30;
+  /* Golden accent - richer for light mode */
+  --color-gold: #A67C00;
+  --color-gold-soft: #A67C0018;
+  --color-gold-glow: #A67C0035;
   
   /* Agent colors - keep vibrant but adjust soft/glow for light bg */
-  --color-instinct-soft: #E07A5F15;
-  --color-instinct-glow: #E07A5F30;
+  --color-instinct-soft: #E07A5F18;
+  --color-instinct-glow: #E07A5F35;
   
-  --color-logic-soft: #6BB8C915;
-  --color-logic-glow: #6BB8C930;
+  --color-logic-soft: #6BB8C918;
+  --color-logic-glow: #6BB8C935;
   
-  --color-psyche-soft: #A78BCA15;
-  --color-psyche-glow: #A78BCA30;
+  --color-psyche-soft: #A78BCA18;
+  --color-psyche-glow: #A78BCA35;
 }
 
 /* Base styles - transparent for rounded corners */

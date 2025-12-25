@@ -52,9 +52,9 @@ export function ThemeToggle() {
   };
 
   const getTitle = () => {
-    if (theme === 'system') return 'System Theme (⌘A) → Light';
-    if (theme === 'light') return 'Light Mode (⌘A) → Dark';
-    return 'Dark Mode (⌘A) → System';
+    if (theme === 'system') return 'System Theme (⌘T) → Light';
+    if (theme === 'light') return 'Light Mode (⌘T) → Dark';
+    return 'Dark Mode (⌘T) → System';
   };
 
   return (
@@ -65,7 +65,7 @@ export function ThemeToggle() {
       title={getTitle()}
     >
       {getIcon()}
-      <kbd className="p-1 bg-smoke/30 rounded text-[10px] font-mono text-ash/60 border border-smoke/40 leading-none aspect-square flex items-center justify-center">⌘A</kbd>
+      <kbd className="p-1 bg-smoke/30 rounded text-[10px] font-mono text-ash/60 border border-smoke/40 leading-none aspect-square flex items-center justify-center">⌘T</kbd>
     </button>
   );
 }

@@ -608,9 +608,11 @@ impl Orchestrator {
         let system_prompt = format!(r#"You are the Intersect Governor/orchestrator. Given a user message and conversation context, decide which agent(s) should respond.
 
 AGENTS (only use these if they are active: {active_list}):
-- Instinct (Snap): Gut feelings, quick pattern recognition, emotional intelligence. Current weight: {:.0}%
-- Logic (Dot): Analytical thinking, structured reasoning, evidence-based. Current weight: {:.0}%  
-- Psyche (Puff): Self-awareness, motivations, emotional depth, "why" behind "what". Current weight: {:.0}%
+- Instinct (Snap/Swarm): Gut feelings, quick pattern recognition, emotional intelligence. Current weight: {:.0}%
+- Logic (Dot/Spin): Analytical thinking, structured reasoning, evidence-based. Current weight: {:.0}%  
+- Psyche (Puff/Storm): Self-awareness, motivations, emotional depth, "why" behind "what". Current weight: {:.0}%
+
+NOTE: Snap/Dot/Puff are normal mode names. Swarm/Spin/Storm are disco mode names. Route to the same agent regardless of which name the user uses.
 {disco_context}
 
 DECISION CRITERIA:
