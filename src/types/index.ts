@@ -16,7 +16,7 @@ export interface AgentConfig {
 }
 
 // Message types
-export type MessageRole = 'user' | 'system' | AgentType;
+export type MessageRole = 'user' | 'system' | 'governor' | AgentType;
 
 export interface Message {
   id: string;
@@ -28,6 +28,8 @@ export interface Message {
   timestamp: Date;
   isStreaming?: boolean;
   isDisco?: boolean;  // Whether this message was generated in Disco Mode
+  // V2.0: Governor messages include thoughts
+  thoughts?: ThoughtResult[];
 }
 
 // Agent response from backend
@@ -46,11 +48,37 @@ export interface WeightChangeNotification {
   change_type: 'shift' | 'major_shift' | 'minor';
 }
 
-// Send message result
+// Send message result (v1 - multi-agent responses)
 export interface SendMessageResult {
   responses: AgentResponse[];
   debate_mode: 'mild' | 'intense' | null;
   weight_change: WeightChangeNotification | null;
+}
+
+// V2.0: Governor-Centric Types
+
+// Agent thought (displayed before Governor synthesis)
+export interface ThoughtResult {
+  agent: string;      // "instinct", "logic", "psyche"
+  name: string;       // Display name: "Snap", "Swarm", etc.
+  content: string;    // The thought content
+  is_disco: boolean;  // Whether disco mode was used
+}
+
+// Send message result v2 (Governor synthesis)
+export interface SendMessageResultV2 {
+  thoughts: ThoughtResult[];
+  synthesis: string;
+  weight_change: WeightChangeNotification | null;
+}
+
+// V2 Governor message for display
+export interface GovernorMessage {
+  id: string;
+  conversationId: string;
+  thoughts: ThoughtResult[];
+  synthesis: string;
+  timestamp: Date;
 }
 
 // User profile (API keys and message count)

@@ -1535,3 +1535,336 @@ pub fn combine_trait_analyses(
     let total = instinct + logic + psyche;
     (instinct / total, logic / total, psyche / total)
 }
+
+// ============ V2.0: Governor-Centric Types and Methods ============
+
+/// A single agent's "thought" - concise perspective on the user's message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentThought {
+    pub agent: String,      // "instinct", "logic", "psyche"
+    pub name: String,       // Display name: "Snap"/"Swarm", etc.
+    pub content: String,    // The thought itself (1-3 sentences)
+    pub is_disco: bool,     // Which personality was used
+}
+
+/// Governor's complete response - thoughts + synthesis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GovernorResponse {
+    pub thoughts: Vec<AgentThought>,  // Individual agent perspectives
+    pub synthesis: String,             // Governor's unified response
+    pub thinking_summary: Option<String>, // Optional summary of Governor's reasoning
+}
+
+/// Governor personality mode
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GovernorMode {
+    CuriousGuide,       // Normal mode: helpful, exploratory
+    DiscoMentor,        // Disco mode: Disco Elysium-style brutal wisdom
+}
+
+impl Orchestrator {
+    /// Get a concise "thought" from an agent (not a full response)
+    /// Thoughts are 1-3 sentences capturing the agent's immediate perspective
+    pub async fn get_agent_thought(
+        &self,
+        agent: Agent,
+        user_message: &str,
+        conversation_history: &[Message],
+        is_disco: bool,
+        user_profile: Option<&UserProfileSummary>,
+    ) -> Result<AgentThought, Box<dyn Error + Send + Sync>> {
+        let (agent_name, persona_prompt) = if is_disco {
+            match agent {
+                Agent::Instinct => ("Swarm", r#"You are SWARM - raw, primal instinct. 
+You speak in short, punchy observations. Trust gut reactions. Don't overthink.
+Your thoughts are immediate, visceral, sometimes uncomfortable truths."#),
+                Agent::Logic => ("Spin", r#"You are SPIN - cold, analytical clarity.
+You see patterns others miss. Cut through bullshit with precision.
+Your thoughts expose contradictions and logical gaps without mercy."#),
+                Agent::Psyche => ("Storm", r#"You are STORM - deep emotional truth.
+You see what people are really feeling, even when they hide it.
+Your thoughts probe motivations and expose the 'why' behind the surface."#),
+            }
+        } else {
+            match agent {
+                Agent::Instinct => ("Snap", r#"You are Snap - quick intuition and gut wisdom.
+You offer practical instincts and pattern recognition.
+Your thoughts are grounded, actionable, emotionally intelligent."#),
+                Agent::Logic => ("Dot", r#"You are Dot - clear analytical thinking.
+You bring structure, evidence, and reasoned perspective.
+Your thoughts are organized, helpful, solution-oriented."#),
+                Agent::Psyche => ("Puff", r#"You are Puff - emotional awareness and depth.
+You understand motivations, feelings, and the human side.
+Your thoughts are warm, insightful, gently probing."#),
+            }
+        };
+        
+        // Build grounding context from user profile
+        let profile_context = if let Some(profile) = user_profile {
+            let mut parts = Vec::new();
+            if let Some(ref style) = profile.communication_style {
+                parts.push(format!("Communication style: {}", style));
+            }
+            if let Some(ref pref) = profile.thinking_preference {
+                parts.push(format!("Thinking preference: {}", pref));
+            }
+            if !profile.recurring_themes.is_empty() {
+                parts.push(format!("Common topics: {}", profile.recurring_themes.iter().take(3).cloned().collect::<Vec<_>>().join(", ")));
+            }
+            if parts.is_empty() {
+                String::new()
+            } else {
+                format!("\n\nAbout this user: {}", parts.join(". "))
+            }
+        } else {
+            String::new()
+        };
+        
+        let system_prompt = format!(
+            r#"{persona_prompt}
+{profile_context}
+
+CRITICAL: You are providing a THOUGHT, not a response. This is your internal perspective that will be synthesized by the Governor into a unified response.
+
+Rules:
+- 1-3 sentences MAXIMUM
+- No greetings, no fluff
+- Be specific to this message
+- Express your unique angle/concern/insight
+- It's okay to disagree with what other agents might think"#
+        );
+        
+        // Build minimal context (last 5 messages for thoughts)
+        let mut messages: Vec<ChatMessage> = vec![
+            ChatMessage {
+                role: "system".to_string(),
+                content: system_prompt,
+            },
+        ];
+        
+        for msg in conversation_history.iter().rev().take(5).rev() {
+            let role = if msg.role == "user" { "user" } else { "assistant" };
+            messages.push(ChatMessage {
+                role: role.to_string(),
+                content: msg.content.clone(),
+            });
+        }
+        
+        messages.push(ChatMessage {
+            role: "user".to_string(),
+            content: user_message.to_string(),
+        });
+        
+        // Lower temperature for more focused thoughts, very short max tokens
+        let temperature = if is_disco { 0.7 } else { 0.5 };
+        let content = self.openai_client.chat_completion(messages, temperature, Some(100)).await?;
+        
+        Ok(AgentThought {
+            agent: agent.as_str().to_string(),
+            name: agent_name.to_string(),
+            content,
+            is_disco,
+        })
+    }
+    
+    /// Collect thoughts from all active agents in parallel
+    pub async fn collect_thoughts(
+        &self,
+        user_message: &str,
+        conversation_history: &[Message],
+        active_agents: &[String],
+        disco_agents: &[String],
+        user_profile: Option<&UserProfileSummary>,
+    ) -> Result<Vec<AgentThought>, Box<dyn Error + Send + Sync>> {
+        let mut thoughts = Vec::new();
+        
+        // For now, collect sequentially (can be parallelized with tokio::join! later)
+        for agent_str in active_agents {
+            if let Some(agent) = Agent::from_str(agent_str) {
+                let is_disco = disco_agents.contains(agent_str);
+                let thought = self.get_agent_thought(
+                    agent,
+                    user_message,
+                    conversation_history,
+                    is_disco,
+                    user_profile,
+                ).await?;
+                thoughts.push(thought);
+            }
+        }
+        
+        Ok(thoughts)
+    }
+    
+    /// Governor synthesizes thoughts into a unified response
+    /// Uses Claude Sonnet with extended thinking for deep synthesis
+    pub async fn synthesize_governor_response(
+        &self,
+        user_message: &str,
+        thoughts: &[AgentThought],
+        conversation_history: &[Message],
+        mode: GovernorMode,
+        user_profile: Option<&UserProfileSummary>,
+    ) -> Result<GovernorResponse, Box<dyn Error + Send + Sync>> {
+        let persona = match mode {
+            GovernorMode::CuriousGuide => r#"You are the Governor - a curious, thoughtful guide.
+Your role is to synthesize the perspectives of your internal council (the thoughts you see) into a unified, helpful response.
+
+Personality:
+- Warm but not sycophantic
+- Ask follow-up questions when genuinely useful
+- Help the user explore their own thinking
+- Draw wisdom from the different perspectives without just listing them
+- Speak as one integrated voice, not as a moderator
+
+Do NOT say things like "Snap thinks X, Dot thinks Y" - instead, weave their insights naturally into your response."#,
+            
+            GovernorMode::DiscoMentor => r#"You are the Governor in DISCO MODE - a wise but brutally honest mentor, inspired by Disco Elysium.
+Your role is to synthesize the raw, unfiltered perspectives of your internal council into challenging wisdom.
+
+Personality:
+- Philosophical, sometimes poetic
+- Willing to make the user uncomfortable with truth
+- Challenge assumptions and comfortable narratives  
+- Use vivid, literary language
+- Don't coddle - genuine growth requires friction
+- Draw from existential themes: meaning, identity, choice, consequence
+
+Do NOT be cruel for cruelty's sake - be honest in service of the user's growth.
+Weave the intense agent perspectives into unified, provocative insight."#,
+        };
+        
+        // Format thoughts for context
+        let thoughts_text = thoughts.iter()
+            .map(|t| format!("[{}]: {}", t.name, t.content))
+            .collect::<Vec<_>>()
+            .join("\n");
+        
+        // Profile context
+        let profile_context = if let Some(profile) = user_profile {
+            let mut details = Vec::new();
+            if let Some(ref style) = profile.communication_style {
+                details.push(format!("- Communication style: {}", style));
+            }
+            if let Some(ref pref) = profile.thinking_preference {
+                details.push(format!("- Thinking preference: {}", pref));
+            }
+            if let Some(ref tendency) = profile.emotional_tendency {
+                details.push(format!("- Emotional tendency: {}", tendency));
+            }
+            if !profile.recurring_themes.is_empty() {
+                details.push(format!("- Recurring themes: {}", profile.recurring_themes.join(", ")));
+            }
+            for (category, facts) in &profile.facts_by_category {
+                if !facts.is_empty() {
+                    let fact_str: Vec<String> = facts.iter().take(3).map(|f| format!("{}: {}", f.key, f.value)).collect();
+                    details.push(format!("- {}: {}", category, fact_str.join("; ")));
+                }
+            }
+            if details.is_empty() {
+                String::new()
+            } else {
+                format!("\n\nWhat I know about this user:\n{}", details.join("\n"))
+            }
+        } else {
+            String::new()
+        };
+        
+        // Build conversation context (last 10 messages)
+        let history_context = conversation_history.iter()
+            .rev()
+            .take(10)
+            .rev()
+            .map(|msg| {
+                let role = if msg.role == "user" { "User" } else { "Governor" };
+                format!("{}: {}", role, msg.content)
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        
+        let system_prompt = format!(
+            r#"{persona}
+{profile_context}
+
+Your internal council has provided these perspectives:
+---
+{thoughts_text}
+---
+
+Recent conversation:
+{history_context}
+
+Respond to the user's message, drawing on these perspectives. Your response should feel like one unified voice - insightful, natural, human."#
+        );
+        
+        let messages = vec![
+            AnthropicMessage {
+                role: "user".to_string(),
+                content: user_message.to_string(),
+            },
+        ];
+        
+        // Use Claude Sonnet with thinking for synthesis
+        let synthesis = self.anthropic_client.chat_completion_advanced(
+            "claude-sonnet-4-20250514",
+            Some(&system_prompt),
+            messages,
+            0.7,
+            Some(600), // Allow longer synthesis
+            ThinkingBudget::Medium, // Enable thinking for deeper synthesis
+        ).await?;
+        
+        Ok(GovernorResponse {
+            thoughts: thoughts.to_vec(),
+            synthesis,
+            thinking_summary: None, // Could extract from thinking tokens if needed
+        })
+    }
+    
+    /// Full v2.0 Governor-centric message processing
+    pub async fn process_message_v2(
+        &self,
+        user_message: &str,
+        conversation_history: &[Message],
+        active_agents: &[String],
+        disco_agents: &[String],
+        user_profile: Option<&UserProfileSummary>,
+    ) -> Result<GovernorResponse, Box<dyn Error + Send + Sync>> {
+        let has_any_disco = !disco_agents.is_empty();
+        let mode = if has_any_disco { GovernorMode::DiscoMentor } else { GovernorMode::CuriousGuide };
+        
+        logging::log_routing(None, &format!(
+            "[V2] Processing message with {} agents, mode={:?}",
+            active_agents.len(),
+            mode
+        ));
+        
+        // Stage 1: Collect thoughts from all active agents
+        let thoughts = self.collect_thoughts(
+            user_message,
+            conversation_history,
+            active_agents,
+            disco_agents,
+            user_profile,
+        ).await?;
+        
+        logging::log_routing(None, &format!(
+            "[V2] Collected {} thoughts: {:?}",
+            thoughts.len(),
+            thoughts.iter().map(|t| &t.name).collect::<Vec<_>>()
+        ));
+        
+        // Stage 2: Governor synthesizes thoughts into unified response
+        let response = self.synthesize_governor_response(
+            user_message,
+            &thoughts,
+            conversation_history,
+            mode,
+            user_profile,
+        ).await?;
+        
+        logging::log_routing(None, "[V2] Governor synthesis complete");
+        
+        Ok(response)
+    }
+}

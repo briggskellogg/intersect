@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import { Message, AgentType } from '../types';
 import { AGENTS, DISCO_AGENTS, USER_PROFILES, GOVERNOR } from '../constants/agents';
 import { useAppStore } from '../store';
+import { ThoughtsContainer } from './ThoughtBubble';
 
 interface MessageBubbleProps {
   message: Message;
@@ -14,8 +15,9 @@ export function MessageBubble({ message, isLatest: _isLatest }: MessageBubblePro
   const { activePersonaProfile } = useAppStore();
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
+  const isGovernor = message.role === 'governor';
   const agentConfig = message.isDisco ? DISCO_AGENTS : AGENTS;
-  const agent = isUser ? null : isSystem ? GOVERNOR : agentConfig[message.role as AgentType];
+  const agent = isUser ? null : (isSystem || isGovernor) ? GOVERNOR : agentConfig[message.role as AgentType];
   
   
   // Typewriter effect for agent messages
@@ -88,6 +90,11 @@ export function MessageBubble({ message, isLatest: _isLatest }: MessageBubblePro
       transition={{ duration: 0.25, ease: 'easeOut' }}
       className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} mb-2`}
     >
+      {/* V2: Show thoughts above Governor synthesis */}
+      {isGovernor && message.thoughts && message.thoughts.length > 0 && (
+        <ThoughtsContainer thoughts={message.thoughts} />
+      )}
+      
       {/* Bubble row - avatar aligned with name tag */}
       <div className={`flex gap-2 items-start ${isUser ? 'flex-row-reverse' : ''}`}>
         {/* Agent avatar - aligned with name tag (slight offset from top) */}
@@ -140,7 +147,7 @@ export function MessageBubble({ message, isLatest: _isLatest }: MessageBubblePro
           }`}
           style={{ maxWidth: 'calc(75vw - 60px)' }}
         >
-          {/* Agent name tag - compact */}
+          {/* Agent/Governor name tag - compact */}
           {!isUser && !isSystem && agent && (
             <span 
               className="inline-block px-2 py-0.5 rounded text-[11px] font-mono font-medium mb-1.5"
@@ -149,7 +156,7 @@ export function MessageBubble({ message, isLatest: _isLatest }: MessageBubblePro
                 color: agent.color,
               }}
             >
-              {agent.name}
+              {isGovernor ? 'Governor' : agent.name}
             </span>
           )}
           

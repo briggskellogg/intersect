@@ -80,6 +80,20 @@ interface AppState {
   // ElevenLabs API key (for voice transcription)
   elevenLabsApiKey: string | null;
   setElevenLabsApiKey: (key: string | null) => void;
+  
+  // V2.0: Governor-centric mode
+  useGovernorMode: boolean;  // Feature flag for v2 experience
+  setUseGovernorMode: (use: boolean) => void;
+  
+  // V2.0: Current thoughts being collected (for display during thinking)
+  currentThoughts: Array<{
+    agent: string;
+    name: string;
+    content: string;
+    is_disco: boolean;
+  }>;
+  addThought: (thought: { agent: string; name: string; content: string; is_disco: boolean }) => void;
+  clearThoughts: () => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -281,4 +295,31 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     set({ elevenLabsApiKey });
   },
+  
+  // V2.0: Governor-centric mode - persisted to localStorage
+  // Default to TRUE for new installs (v2 experience)
+  useGovernorMode: (() => {
+    try {
+      const stored = localStorage.getItem('intersect-governor-mode');
+      if (stored === null) return true; // Default to v2 for new installs
+      return stored === 'true';
+    } catch {
+      return true;
+    }
+  })(),
+  setUseGovernorMode: (useGovernorMode) => {
+    try {
+      localStorage.setItem('intersect-governor-mode', String(useGovernorMode));
+    } catch (e) {
+      console.error('Failed to persist governor mode:', e);
+    }
+    set({ useGovernorMode });
+  },
+  
+  // V2.0: Current thoughts being collected
+  currentThoughts: [],
+  addThought: (thought) => set((state) => ({
+    currentThoughts: [...state.currentThoughts, thought],
+  })),
+  clearThoughts: () => set({ currentThoughts: [] }),
 }));

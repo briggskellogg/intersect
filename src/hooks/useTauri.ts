@@ -249,6 +249,41 @@ export async function sendMessage(
   });
 }
 
+// V2.0: Governor-Centric Message Types
+
+export interface ThoughtResult {
+  agent: string;      // "instinct", "logic", "psyche"
+  name: string;       // Display name: "Snap", "Swarm", etc.
+  content: string;    // The thought content
+  is_disco: boolean;  // Whether disco mode was used
+}
+
+export interface SendMessageResultV2 {
+  thoughts: ThoughtResult[];
+  synthesis: string;
+  weight_change: {
+    message: string;
+    old_dominant: string;
+    new_dominant: string;
+    change_type: string;
+  } | null;
+}
+
+// V2.0: Governor-Centric Message Processing
+export async function sendMessageV2(
+  conversationId: string,
+  userMessage: string,
+  activeAgents: AgentType[],
+  discoAgents: AgentType[] = []
+): Promise<SendMessageResultV2> {
+  return invoke<SendMessageResultV2>('send_message_v2', {
+    conversationId,
+    userMessage,
+    activeAgents,
+    discoAgents,
+  });
+}
+
 // User context
 export async function getUserContext(): Promise<UserContext[]> {
   const contexts = await invoke<{

@@ -9,7 +9,7 @@ mod orchestrator;
 
 use db::{Message, UserProfile, UserContext};
 use memory::{MemoryExtractor, ConversationSummarizer};
-use orchestrator::{Orchestrator, Agent, ResponseType, AgentResponse, evolve_weights, InteractionType, EngagementAnalyzer, IntrinsicTraitAnalyzer, combine_trait_analyses, decide_response_heuristic, decide_grounding_heuristic};
+use orchestrator::{Orchestrator, Agent, ResponseType, AgentResponse, evolve_weights, InteractionType, EngagementAnalyzer, IntrinsicTraitAnalyzer, combine_trait_analyses, decide_response_heuristic, decide_grounding_heuristic, AgentThought, GovernorResponse};
 use serde::{Deserialize, Serialize};
 use chrono::Utc;
 use uuid::Uuid;
@@ -18,6 +18,25 @@ use uuid::Uuid;
 pub struct SendMessageResult {
     pub responses: Vec<AgentResponse>,
     pub debate_mode: Option<String>, // "mild" | "intense" | null
+    pub weight_change: Option<WeightChangeNotification>,
+}
+
+// ============ V2.0: Governor-Centric Response Types ============
+
+/// Frontend-friendly thought structure
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ThoughtResult {
+    pub agent: String,      // "instinct", "logic", "psyche"
+    pub name: String,       // Display name: "Snap", "Swarm", etc.
+    pub content: String,    // The thought content
+    pub is_disco: bool,     // Whether disco mode was used
+}
+
+/// V2.0 message result - Governor synthesis with visible thoughts
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SendMessageResultV2 {
+    pub thoughts: Vec<ThoughtResult>,  // Agent thoughts (displayed first)
+    pub synthesis: String,              // Governor's unified response
     pub weight_change: Option<WeightChangeNotification>,
 }
 
@@ -1272,6 +1291,139 @@ async fn send_message(
     Ok(SendMessageResult { responses, debate_mode, weight_change })
 }
 
+// ============ V2.0: Governor-Centric Message Processing ============
+
+#[tauri::command]
+async fn send_message_v2(
+    conversation_id: String,
+    user_message: String,
+    active_agents: Vec<String>,
+    disco_agents: Vec<String>,
+) -> Result<SendMessageResultV2, String> {
+    // Get profile for API keys and weights
+    let profile = db::get_user_profile().map_err(|e| e.to_string())?;
+    let api_key = profile.api_key.clone().ok_or("OpenAI API key not set")?;
+    let anthropic_key = profile.anthropic_key.clone().ok_or("Anthropic API key not set")?;
+    let initial_weights = (profile.instinct_weight, profile.logic_weight, profile.psyche_weight);
+    
+    if active_agents.is_empty() {
+        return Ok(SendMessageResultV2 { 
+            thoughts: Vec::new(), 
+            synthesis: "No agents are active.".to_string(),
+            weight_change: None,
+        });
+    }
+    
+    // Build user profile for grounding
+    let user_profile = MemoryExtractor::build_profile_summary().ok();
+    
+    // Save user message
+    let user_msg = Message {
+        id: Uuid::new_v4().to_string(),
+        conversation_id: conversation_id.clone(),
+        role: "user".to_string(),
+        content: user_message.clone(),
+        response_type: None,
+        references_message_id: None,
+        timestamp: Utc::now().to_rfc3339(),
+    };
+    db::save_message(&user_msg).map_err(|e| e.to_string())?;
+    
+    // Get recent messages for context
+    let recent_messages = db::get_recent_messages(&conversation_id, 20).map_err(|e| e.to_string())?;
+    
+    // Create orchestrator
+    let orchestrator = Orchestrator::new(&api_key, &anthropic_key);
+    
+    // Use the new V2 processing
+    let governor_response = orchestrator
+        .process_message_v2(
+            &user_message,
+            &recent_messages,
+            &active_agents,
+            &disco_agents,
+            user_profile.as_ref(),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    // Save Governor's synthesized response
+    let governor_msg = Message {
+        id: Uuid::new_v4().to_string(),
+        conversation_id: conversation_id.clone(),
+        role: "governor".to_string(),
+        content: governor_response.synthesis.clone(),
+        response_type: Some("synthesis".to_string()),
+        references_message_id: None,
+        timestamp: Utc::now().to_rfc3339(),
+    };
+    db::save_message(&governor_msg).map_err(|e| e.to_string())?;
+    
+    // Increment message count
+    db::increment_message_count().map_err(|e| e.to_string())?;
+    
+    // Convert thoughts to frontend format
+    let thoughts: Vec<ThoughtResult> = governor_response.thoughts
+        .into_iter()
+        .map(|t| ThoughtResult {
+            agent: t.agent,
+            name: t.name,
+            content: t.content,
+            is_disco: t.is_disco,
+        })
+        .collect();
+    
+    // Background trait analysis (same as v1)
+    let has_any_disco = !disco_agents.is_empty();
+    {
+        let anthropic_key_for_traits = anthropic_key.clone();
+        let user_message_for_traits = user_message.clone();
+        let conversation_id_for_traits = conversation_id.clone();
+        let total_messages_for_traits = profile.total_messages;
+        
+        tokio::spawn(async move {
+            logging::log_routing(Some(&conversation_id_for_traits), "[V2 BACKGROUND] Starting trait analysis...");
+            
+            let intrinsic_analyzer = IntrinsicTraitAnalyzer::new(&anthropic_key_for_traits);
+            let intrinsic_analysis = intrinsic_analyzer.analyze(&user_message_for_traits).await.ok();
+            
+            if intrinsic_analysis.is_some() {
+                if let Ok(current_profile) = db::get_user_profile() {
+                    let current_weights = (current_profile.instinct_weight, current_profile.logic_weight, current_profile.psyche_weight);
+                    
+                    let new_weights = combine_trait_analyses(
+                        current_weights,
+                        None, // No engagement analysis in v2 (thoughts aren't full responses)
+                        intrinsic_analysis.as_ref(),
+                        has_any_disco,
+                        total_messages_for_traits,
+                    );
+                    
+                    let _ = db::update_weights(new_weights.0, new_weights.1, new_weights.2);
+                }
+            }
+        });
+    }
+    
+    // Get final weights for notification
+    let final_weights = db::get_user_profile()
+        .map(|p| (p.instinct_weight, p.logic_weight, p.psyche_weight))
+        .unwrap_or(initial_weights);
+    
+    let weight_change = generate_weight_notification(
+        initial_weights,
+        final_weights,
+        "governor", // v2 always attributes to Governor
+        false,
+    );
+    
+    Ok(SendMessageResultV2 {
+        thoughts,
+        synthesis: governor_response.synthesis,
+        weight_change,
+    })
+}
+
 // ============ User Context (Legacy) ============
 
 #[tauri::command]
@@ -1614,6 +1766,7 @@ pub fn run() {
             recover_conversations,
             get_conversation_opener,
             send_message,
+            send_message_v2,
             get_user_context,
             clear_user_context,
             get_memory_stats,

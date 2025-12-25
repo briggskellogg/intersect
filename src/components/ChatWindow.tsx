@@ -12,7 +12,8 @@ import { useAppStore } from '../store';
 import { Message, AgentType, DebateMode } from '../types';
 import { AGENTS, DISCO_AGENTS, AGENT_ORDER, USER_PROFILES } from '../constants/agents';
 import { 
-  sendMessage, 
+  sendMessage,
+  sendMessageV2,
   createConversation, 
   getConversationOpener,
   getUserProfile,
@@ -63,7 +64,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
   // Count active agents for Governor logic (on or disco = active)
   const activeCount = Object.values(agentModes).filter(m => m !== 'off').length;
   
-  const { activePersonaProfile, elevenLabsApiKey, isSettingsOpen } = useAppStore();
+  const { activePersonaProfile, elevenLabsApiKey, isSettingsOpen, useGovernorMode } = useAppStore();
   
   // Get dominant trait from active persona profile
   const dominantAgent: AgentType = activePersonaProfile?.dominantTrait || 'logic';
@@ -504,28 +505,64 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
     setThinkingAgent('system'); // Governor is routing
     
     try {
-      const result = await sendMessage(currentConversation.id, content, activeList, discoList);
-      
-      // Set debate mode if applicable
-      if (result.debate_mode) {
-        setDebateMode(result.debate_mode as DebateMode);
-      }
-      
-      // Calculate typing time for a message based on agent speed
-      const getTypingDuration = (agent: string, contentLength: number): number => {
-        // Typing speeds (ms per char) - matches MessageBubble
-        const speeds: Record<string, number> = {
-          instinct: 20,  // Fast (15-25ms avg)
-          logic: 45,     // Slow (35-55ms avg)
-          psyche: 32,    // Medium (25-40ms avg)
+      // V2: Governor-centric mode
+      if (useGovernorMode) {
+        const result = await sendMessageV2(currentConversation.id, content, activeList, discoList);
+        
+        // Show Governor synthesizing
+        setThinkingPhase('thinking');
+        await new Promise(r => setTimeout(r, 500));
+        
+        // Clear thinking indicator
+        setThinkingAgent(null);
+        
+        // Add Governor message with thoughts
+        const governorMessage: Message = {
+          id: uuidv4(),
+          conversationId: currentConversation.id,
+          role: 'governor',
+          content: result.synthesis,
+          timestamp: new Date(),
+          thoughts: result.thoughts,
         };
-        const msPerChar = speeds[agent] || 30;
-        return contentLength * msPerChar + 500; // Add 500ms buffer
-      };
+        addMessage(governorMessage);
+        
+        // Show weight change notification if any
+        if (result.weight_change) {
+          setGovernorNotification({ message: result.weight_change.message });
+        }
+        
+        // Refresh user profile
+        try {
+          const updatedProfile = await getUserProfile();
+          setUserProfile(updatedProfile);
+        } catch (profileErr) {
+          console.error('Failed to refresh profile:', profileErr);
+        }
+      } else {
+        // V1: Original multi-agent mode
+        const result = await sendMessage(currentConversation.id, content, activeList, discoList);
+      
+        // Set debate mode if applicable
+        if (result.debate_mode) {
+          setDebateMode(result.debate_mode as DebateMode);
+        }
+      
+        // Calculate typing time for a message based on agent speed
+        const getTypingDuration = (agent: string, contentLength: number): number => {
+          // Typing speeds (ms per char) - matches MessageBubble
+          const speeds: Record<string, number> = {
+            instinct: 20,  // Fast (15-25ms avg)
+            logic: 45,     // Slow (35-55ms avg)
+            psyche: 32,    // Medium (25-40ms avg)
+          };
+          const msPerChar = speeds[agent] || 30;
+          return contentLength * msPerChar + 500; // Add 500ms buffer
+        };
 
-      // Show each responding agent - wait for previous to finish typing
-      for (let i = 0; i < result.responses.length; i++) {
-        // Check for user interruption before processing next response
+        // Show each responding agent - wait for previous to finish typing
+        for (let i = 0; i < result.responses.length; i++) {
+          // Check for user interruption before processing next response
         if (shouldCancelDebate.current && i > 0) {
           console.log('[INTERRUPT] User interrupted debate after', i, 'responses');
           break;
@@ -567,17 +604,18 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
       }
       
       // Show weight change notification from Governor as toast
-      if (result.weight_change) {
-        setGovernorNotification({ message: result.weight_change.message });
-      }
+        if (result.weight_change) {
+          setGovernorNotification({ message: result.weight_change.message });
+        }
       
-      // Refresh user profile to update weights and message count in UI
-      try {
-        const updatedProfile = await getUserProfile();
-        setUserProfile(updatedProfile);
-      } catch (profileErr) {
-        console.error('Failed to refresh profile:', profileErr);
-      }
+        // Refresh user profile to update weights and message count in UI
+        try {
+          const updatedProfile = await getUserProfile();
+          setUserProfile(updatedProfile);
+        } catch (profileErr) {
+          console.error('Failed to refresh profile:', profileErr);
+        }
+      } // End of v1 else block
     } catch (err) {
       const rawError = err instanceof Error ? err.message : String(err);
       
@@ -1077,7 +1115,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
           <h1 className="font-logo text-base font-bold tracking-wide leading-none text-pearl">
             Intersect
           </h1>
-          <span className="px-1 py-0.5 bg-smoke/40 border border-smoke/50 rounded text-[10px] font-mono text-ash/70 leading-none">v1</span>
+          <span className="px-1 py-0.5 bg-smoke/40 border border-smoke/50 rounded text-[10px] font-mono text-ash/70 leading-none">v2</span>
         </div>
 
         {/* Right controls */}
