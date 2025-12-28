@@ -1,14 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ExternalLink, Edit2, Calendar, Key } from 'lucide-react';
+import { Calendar, Key, Info } from 'lucide-react';
 import { useAppStore } from '../store';
 import { AGENTS } from '../constants/agents';
 import { 
   getUserProfile, 
-  getAllPersonaProfiles,
-  updatePersonaProfileName,
-  setActivePersonaProfile as setActivePersonaProfileBackend,
-  finalizeConversation,
+  updatePoints,
+  getActivePersonaProfile,
 } from '../hooks/useTauri';
 import { ApiKeyModal } from './ApiKeyModal';
 import governorTransparent from '../assets/governor-transparent.png';
@@ -16,7 +14,6 @@ import governorTransparent from '../assets/governor-transparent.png';
 import instinctProfile from '../assets/agents/instinct.png';
 import logicProfile from '../assets/agents/logic.png';
 import psycheProfile from '../assets/agents/psyche.png';
-
 const PROFILE_IMAGES = {
   instinct: instinctProfile,
   logic: logicProfile,
@@ -28,40 +25,23 @@ interface SettingsProps {
   onClose: () => void;
 }
 
-// Types for profile data in radar chart
-interface ProfileForChart {
-  id: string;
-  name: string;
-  dominantTrait: string;
-  isActive: boolean;
-  isDefault: boolean;
-}
-
 interface RadarChartProps {
   weights: { instinct: number; logic: number; psyche: number };
   targetWeights?: { instinct: number; logic: number; psyche: number };
-  profiles?: ProfileForChart[];
-  onSwitchProfile?: (profileId: string) => void;
-  editingProfileName?: string | null;
-  tempProfileName?: string;
-  onStartEdit?: (profileId: string, currentName: string) => void;
-  onSaveEdit?: (profileId: string) => void;
-  onCancelEdit?: () => void;
-  onTempNameChange?: (name: string) => void;
+  localPoints?: { instinct: number; logic: number; psyche: number };
+  onPointChange?: (trait: 'instinct' | 'logic' | 'psyche', delta: number) => void;
+  selectedDominantTrait?: 'instinct' | 'logic' | 'psyche' | null;
+  onDominantTraitSelect?: (trait: 'instinct' | 'logic' | 'psyche') => void;
 }
 
 // Radar chart component for agent weights with profile pictures
 function RadarChart({ 
   weights, 
   targetWeights: _targetWeights,
-  profiles = [],
-  onSwitchProfile,
-  editingProfileName,
-  tempProfileName,
-  onStartEdit,
-  onSaveEdit,
-  onCancelEdit,
-  onTempNameChange,
+  localPoints,
+  onPointChange,
+  selectedDominantTrait,
+  onDominantTraitSelect,
 }: RadarChartProps) {
   const size = 280;
   const center = size / 2;
@@ -90,11 +70,11 @@ function RadarChart({
   };
   
   // Calculate points for each agent (3 points, 120 degrees apart)
-  // Order matches AGENT_ORDER for hotkeys: ⌘1 Psyche, ⌘2 Logic, ⌘3 Instinct
+  // Reoriented: Logic at top, Psyche bottom-left, Instinct bottom-right
   const angles = {
-    psyche: -90,     // Top (⌘1)
-    logic: 150,      // Bottom left (⌘2)
-    instinct: 30,    // Bottom right (⌘3)
+    logic: -90,      // Top
+    psyche: 150,     // Bottom left
+    instinct: 30,    // Bottom right
   };
   
   const getPoint = (agent: 'instinct' | 'logic' | 'psyche', scale: number) => {
@@ -109,7 +89,7 @@ function RadarChart({
   // Label positions (outside the chart) - more space for larger images
   const getLabelPoint = (agent: 'instinct' | 'logic' | 'psyche') => {
     const angle = (angles[agent] * Math.PI) / 180;
-    const r = radius + 60;
+    const r = radius + 80; // Increased from 60 to 80 for more spacing
     return {
       x: center + r * Math.cos(angle),
       y: center + r * Math.sin(angle),
@@ -219,127 +199,154 @@ function RadarChart({
         ))}
       </svg>
       
-      {/* Profile pictures at corners - size scales with weight, clickable for profile switching */}
+      {/* Profile pictures at corners - size scales with weight, full colored */}
       {agents.map(({ id, label, weight, hotkey }) => {
         const typeLabels = { instinct: 'Instinct', logic: 'Logic', psyche: 'Psyche' };
         const imgSize = getImageSize(weight);
-        // Find profile with this dominant trait
-        const profileForAgent = profiles.find(p => p.dominantTrait === id);
-        const isActiveProfile = profileForAgent?.isActive ?? false;
-        const hasProfile = !!profileForAgent;
+        
+        // Offset profile pictures upward from label point to avoid overlapping chart
+        // Logic is at top (-90°), so needs more upward offset
+        const verticalOffset = id === 'logic' ? -imgSize * 0.8 : (id === 'psyche' || id === 'instinct' ? -imgSize * 0.3 : 0);
         
         return (
           <div
             key={id}
-            className={`absolute flex flex-col items-center transition-all duration-300 group ${hasProfile && !isActiveProfile ? 'cursor-pointer hover:opacity-90' : ''}`}
+            className="absolute flex flex-col items-center transition-all duration-300"
             style={{
-              left: label.x - imgSize / 2,
-              top: label.y - imgSize / 2 - 8,
-            }}
-            onClick={() => {
-              if (profileForAgent && !isActiveProfile && onSwitchProfile) {
-                onSwitchProfile(profileForAgent.id);
-              }
+              left: `${label.x - imgSize / 2}px`,
+              top: `${label.y - imgSize / 2 + verticalOffset}px`,
             }}
           >
-            {/* Profile name pill - above the image */}
-            {profileForAgent && (
-              <div 
-                className={`absolute -top-6 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-obsidian/90 ${editingProfileName === profileForAgent.id ? '' : 'border border-smoke/50'}`}
-              >
-                {editingProfileName === profileForAgent.id ? (
-                  <input
-                    type="text"
-                    value={tempProfileName}
-                    onChange={(e) => onTempNameChange?.(e.target.value)}
-                    onKeyDown={(e) => {
-                      e.stopPropagation();
-                      if (e.key === 'Enter') onSaveEdit?.(profileForAgent.id);
-                      if (e.key === 'Escape') onCancelEdit?.();
-                    }}
-                    onBlur={() => onSaveEdit?.(profileForAgent.id)}
-                    onClick={(e) => e.stopPropagation()}
-                    className="bg-transparent border-none px-0 py-0 text-[11px] font-mono outline-none w-20 caret-current"
-                    style={{ color: AGENTS[id].color, caretColor: AGENTS[id].color }}
-                    autoFocus
-                  />
-                ) : (
-                  <span 
-                    className="text-[11px] font-mono whitespace-nowrap"
-                    style={{ color: AGENTS[id].color }}
-                  >
-                    {profileForAgent.name}
-                  </span>
-                )}
-                {editingProfileName !== profileForAgent.id && isActiveProfile && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onStartEdit?.(profileForAgent.id, profileForAgent.name);
-                    }}
-                    className="p-0.5 rounded hover:bg-smoke/30 text-ash/40 hover:text-ash transition-colors cursor-pointer flex-shrink-0"
-                    title="Edit name"
-                  >
-                    <Edit2 className="w-2.5 h-2.5" />
-                  </button>
-                )}
-              </div>
-            )}
-            
-            <div className="relative">
-              {/* Pulsing amber border for active profile - matches chat user avatar */}
-              {isActiveProfile && (
-                <motion.div
-                  className="absolute inset-0 rounded-full"
-                  style={{ 
-                    boxShadow: '0 0 0 2px #EAB308',
-                  }}
-                  animate={{ 
-                    opacity: [0.65, 0.9, 0.65],
-                  }}
-                  transition={{ 
-                    duration: 3,
-                    repeat: Infinity,
-                    ease: 'easeInOut',
-                  }}
-                />
-              )}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDominantTraitSelect?.(id);
+              }}
+              className="relative cursor-pointer group/profile"
+            >
               <div
-                className={`rounded-full overflow-hidden transition-all duration-300 relative ${!hasProfile ? 'opacity-40' : isActiveProfile ? '' : 'opacity-50 hover:opacity-70 border-2'}`}
+                className="rounded-full overflow-visible transition-all duration-300 relative"
                 style={{
                   width: imgSize,
                   height: imgSize,
-                  borderColor: !isActiveProfile ? `${AGENTS[id].color}40` : undefined,
                 }}
               >
                 <img
                   src={PROFILE_IMAGES[id]}
                   alt={AGENTS[id].name}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover rounded-full"
                 />
+                {/* Selected indicator ring - outer border with padding */}
+                {selectedDominantTrait === id && (
+                  <div
+                    className="absolute rounded-full border-2 pointer-events-none"
+                    style={{
+                      borderColor: AGENTS[id].color,
+                      left: '-3px',
+                      top: '-3px',
+                      width: `calc(100% + 6px)`,
+                      height: `calc(100% + 6px)`,
+                      boxShadow: `0 0 0 2px var(--color-obsidian), 0 0 8px ${AGENTS[id].color}, 0 0 12px ${AGENTS[id].color}60`,
+                    }}
+                  />
+                )}
+                {/* Hover ring */}
+                {selectedDominantTrait !== id && (
+                  <div
+                    className="absolute rounded-full border-2 opacity-0 group-hover/profile:opacity-100 transition-opacity pointer-events-none"
+                    style={{
+                      borderColor: AGENTS[id].color,
+                      left: '-2px',
+                      top: '-2px',
+                      width: `calc(100% + 4px)`,
+                      height: `calc(100% + 4px)`,
+                    }}
+                  />
+                )}
               </div>
-            </div>
-            <div className="flex items-center gap-1.5 mt-2">
-              <span 
-                className="text-[9px] font-mono px-1.5 py-0.5 rounded-full"
-                style={{ 
-                  backgroundColor: `${AGENTS[id].color}20`,
-                  color: AGENTS[id].color,
-                }}
-              >
-                {typeLabels[id]}
-              </span>
-              <span 
-                className="text-[10px] font-mono opacity-70"
-                style={{ color: AGENTS[id].color }}
-              >
-                {Math.round(weight * 100)}%
-              </span>
-              <kbd 
-                className="text-[8px] font-mono px-1 py-0.5 rounded bg-smoke/30 text-ash/50"
-              >
-                ⌘{hotkey}
-              </kbd>
+            </button>
+            <div className="flex flex-col items-center gap-1.5 mt-2">
+              <div className="flex items-center gap-1.5">
+                <span 
+                  className="text-[9px] font-mono px-1.5 py-0.5 rounded-full"
+                  style={{ 
+                    backgroundColor: `${AGENTS[id].color}20`,
+                    color: AGENTS[id].color,
+                  }}
+                >
+                  {typeLabels[id]}
+                </span>
+                <kbd 
+                  className="text-[8px] font-mono px-1 py-0.5 rounded bg-smoke/30 text-ash/50"
+                >
+                  ⌘{hotkey}
+                </kbd>
+              </div>
+              
+              {/* Point selector controls */}
+              {localPoints && onPointChange && (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onPointChange(id, -1);
+                    }}
+                    disabled={localPoints[id] <= 2}
+                    className={`w-5 h-5 rounded border flex items-center justify-center transition-all font-mono text-[10px] ${
+                      localPoints[id] > 2
+                        ? 'border-ash/50 hover:border-ash/70 hover:bg-smoke/30 cursor-pointer active:scale-95'
+                        : 'border-ash/20 opacity-30 cursor-not-allowed'
+                    }`}
+                    style={{
+                      borderColor: localPoints[id] > 2 ? `${AGENTS[id].color}50` : undefined,
+                    }}
+                  >
+                    <span className="text-ash/80">−</span>
+                  </button>
+                  
+                  <div 
+                    className="px-2 py-0.5 rounded border tabular-nums min-w-[24px] text-center"
+                    style={{
+                      backgroundColor: `${AGENTS[id].color}15`,
+                      borderColor: `${AGENTS[id].color}40`,
+                      color: AGENTS[id].color,
+                      fontFamily: 'var(--font-mono)',
+                    }}
+                  >
+                    <span className="text-xs font-bold">{localPoints[id]}</span>
+                  </div>
+                  
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onPointChange(id, +1);
+                    }}
+                    disabled={
+                      localPoints[id] >= 6 || 
+                      ((localPoints.instinct + localPoints.logic + localPoints.psyche) >= 11 &&
+                      !(['instinct', 'logic', 'psyche'] as const).some(t => t !== id && localPoints[t] > 2))
+                    }
+                    className={`w-5 h-5 rounded border flex items-center justify-center transition-all font-mono text-[10px] ${
+                      localPoints[id] < 6 && (
+                        (localPoints.instinct + localPoints.logic + localPoints.psyche) < 11 ||
+                        (['instinct', 'logic', 'psyche'] as const).some(t => t !== id && localPoints[t] > 2)
+                      )
+                        ? 'border-ash/50 hover:border-ash/70 hover:bg-smoke/30 cursor-pointer active:scale-95'
+                        : 'border-ash/20 opacity-30 cursor-not-allowed'
+                    }`}
+                    style={{
+                      borderColor: (
+                        localPoints[id] < 6 && (
+                          (localPoints.instinct + localPoints.logic + localPoints.psyche) < 11 ||
+                          (['instinct', 'logic', 'psyche'] as const).some(t => t !== id && localPoints[t] > 2)
+                        )
+                      ) ? `${AGENTS[id].color}50` : undefined,
+                    }}
+                  >
+                    <span className="text-ash/80">+</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         );
@@ -357,139 +364,33 @@ function formatDate(date: Date): string {
   });
 }
 
-// 16 Personality Types mapped to Logic/Instinct/Psyche combinations
-// Based on 16personalities.com framework:
-// - Analysts (Logic-dominant): INTJ, INTP, ENTJ, ENTP
-// - Diplomats (Instinct-dominant): INFJ, INFP, ENFJ, ENFP  
-// - Sentinels (Psyche-dominant): ISTJ, ISFJ, ESTJ, ESFJ
-// - Explorers (Mixed): ISTP, ISFP, ESTP, ESFP
-const PERSONALITY_TYPES = {
-  // Logic dominant (Analysts)
-  'logic-pure': { code: 'INTP', name: 'The Logician', desc: 'Innovative inventor with an unquenchable thirst for knowledge.' },
-  'logic-instinct': { code: 'ENTP', name: 'The Debater', desc: 'Smart and curious thinker who thrives on intellectual challenges.' },
-  'logic-psyche': { code: 'INTJ', name: 'The Architect', desc: 'Imaginative strategist with a plan for everything.' },
-  'logic-balanced': { code: 'ENTJ', name: 'The Commander', desc: 'Bold leader who finds or makes a way.' },
-  
-  // Instinct dominant (Diplomats)
-  'instinct-pure': { code: 'INFP', name: 'The Mediator', desc: 'Poetic and idealistic, seeking good in all situations.' },
-  'instinct-logic': { code: 'ENFJ', name: 'The Protagonist', desc: 'Charismatic leader who inspires others.' },
-  'instinct-psyche': { code: 'INFJ', name: 'The Advocate', desc: 'Quiet visionary with an inner fire.' },
-  'instinct-balanced': { code: 'ENFP', name: 'The Campaigner', desc: 'Enthusiastic free spirit who finds joy in connections.' },
-  
-  // Psyche dominant (Sentinels)
-  'psyche-pure': { code: 'ISFJ', name: 'The Defender', desc: 'Dedicated protector, warm and caring.' },
-  'psyche-logic': { code: 'ISTJ', name: 'The Logistician', desc: 'Practical and reliable, devoted to tradition.' },
-  'psyche-instinct': { code: 'ESFJ', name: 'The Consul', desc: 'Caring and social, eager to help.' },
-  'psyche-balanced': { code: 'ESTJ', name: 'The Executive', desc: 'Excellent administrator who manages things and people.' },
-  
-  // Mixed/Explorer types
-  'mixed-logic-instinct': { code: 'ESTP', name: 'The Entrepreneur', desc: 'Smart, energetic, perceptive, and action-oriented.' },
-  'mixed-instinct-psyche': { code: 'ESFP', name: 'The Entertainer', desc: 'Spontaneous and energetic, life is never dull around you.' },
-  'mixed-logic-psyche': { code: 'ISTP', name: 'The Virtuoso', desc: 'Bold experimenter, master of tools.' },
-  'balanced': { code: 'ISFP', name: 'The Adventurer', desc: 'Flexible artist, ready to explore and experience.' },
-};
-
-function getPersonalityType(weights: { instinct: number; logic: number; psyche: number }): { code: string; name: string; desc: string; key: string } {
-  const { instinct, logic, psyche } = weights;
-  
-  const sorted = [
-    { id: 'logic', weight: logic },
-    { id: 'instinct', weight: instinct },
-    { id: 'psyche', weight: psyche },
-  ].sort((a, b) => b.weight - a.weight);
-  
-  const dominant = sorted[0];
-  const secondary = sorted[1];
-  const tertiary = sorted[2];
-  
-  const dominantWeight = dominant.weight;
-  const secondaryWeight = secondary.weight;
-  const tertiaryWeight = tertiary.weight;
-  
-  // Check for balanced (all within 10% of each other)
-  if (Math.abs(dominantWeight - tertiaryWeight) < 0.10) {
-    return { ...PERSONALITY_TYPES['balanced'], key: 'balanced' };
-  }
-  
-  // Check for mixed (top two are close, third is clearly lower)
-  if (Math.abs(dominantWeight - secondaryWeight) < 0.08 && (secondaryWeight - tertiaryWeight) > 0.10) {
-    const mixKey = `mixed-${[dominant.id, secondary.id].sort().join('-')}` as keyof typeof PERSONALITY_TYPES;
-    if (PERSONALITY_TYPES[mixKey]) {
-      return { ...PERSONALITY_TYPES[mixKey], key: mixKey };
-    }
-  }
-  
-  // Dominant with secondary influence
-  if ((dominantWeight - secondaryWeight) < 0.12) {
-    const key = `${dominant.id}-${secondary.id}` as keyof typeof PERSONALITY_TYPES;
-    if (PERSONALITY_TYPES[key]) {
-      return { ...PERSONALITY_TYPES[key], key };
-    }
-  }
-  
-  // Dominant with balanced others
-  if ((secondaryWeight - tertiaryWeight) < 0.08) {
-    const key = `${dominant.id}-balanced` as keyof typeof PERSONALITY_TYPES;
-    if (PERSONALITY_TYPES[key]) {
-      return { ...PERSONALITY_TYPES[key], key };
-    }
-  }
-  
-  // Pure dominant
-  const pureKey = `${dominant.id}-pure` as keyof typeof PERSONALITY_TYPES;
-  return { ...PERSONALITY_TYPES[pureKey], key: pureKey };
-}
-
-// Generate user profile description based on weights
-function getProfileDescription(weights: { instinct: number; logic: number; psyche: number }, totalMessages: number): { 
-  title: string; 
-  code: string;
-  description: string; 
-  forming: string;
-  confidence: number;
-} {
-  const personality = getPersonalityType(weights);
-  
-  // De-exponential confidence: fast learning early, rigid at 10k messages
-  // Formula: sqrt(messages/10000) * 100, matches backend calculate_variability
-  const confidence = Math.min(100, Math.round(Math.sqrt(totalMessages / 10000) * 100));
-  
-  // How weights are forming
-  let forming = '';
-  if (confidence < 10) {
-    forming = `${confidence}% confident · Still learning your patterns...`;
-  } else if (confidence < 50) {
-    forming = `${confidence}% confident · Your profile is taking shape.`;
-  } else if (confidence < 100) {
-    forming = `${confidence}% confident · Becoming more certain about you.`;
-  } else {
-    forming = `100% confident · Profile is fully established.`;
-  }
-  
-  return { 
-    title: personality.name, 
-    code: personality.code,
-    description: personality.desc, 
-    forming,
-    confidence,
-  };
-}
-
 export function Settings({ isOpen, onClose }: SettingsProps) {
   const { 
     userProfile, 
-    clearMessages, 
-    currentConversation,
-    setCurrentConversation, 
-    setUserProfile, 
-    allPersonaProfiles,
-    setAllPersonaProfiles,
+    setUserProfile,
+    activePersonaProfile,
     setActivePersonaProfile,
-    messages,
   } = useAppStore();
   const [showApiModal, setShowApiModal] = useState(false);
-  const [editingProfileName, setEditingProfileName] = useState<string | null>(null);
-  const [tempProfileName, setTempProfileName] = useState('');
+  // Convert weights to points (11 total, each 2-6)
+  const weightsToPoints = (weight: number) => Math.round(weight * 11);
+  const pointsToWeight = (points: number) => points / 11;
+  
+  const [localPoints, setLocalPoints] = useState({
+    instinct: weightsToPoints(userProfile?.instinctWeight ?? 0.3),
+    logic: weightsToPoints(userProfile?.logicWeight ?? 0.4),
+    psyche: weightsToPoints(userProfile?.psycheWeight ?? 0.3),
+  });
+  
+  // Manually selected dominant trait (independent of points)
+  const [selectedDominantTrait, setSelectedDominantTrait] = useState<'instinct' | 'logic' | 'psyche' | null>(null);
+  
+  // Initialize selected dominant trait from active persona profile
+  useEffect(() => {
+    if (activePersonaProfile && selectedDominantTrait === null) {
+      setSelectedDominantTrait(activePersonaProfile.dominantTrait);
+    }
+  }, [activePersonaProfile, selectedDominantTrait]);
   
   // Animated weights for smooth transitions
   const [animatedWeights, setAnimatedWeights] = useState({
@@ -498,25 +399,33 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
     psyche: userProfile?.psycheWeight ?? 0.3,
   });
   
-  // Animate weight transitions when profile changes
+  // Update local points when active persona profile changes
   useEffect(() => {
-    if (!userProfile) return;
-    
-    const targetWeights = {
-      logic: userProfile.logicWeight,
-      instinct: userProfile.instinctWeight,
-      psyche: userProfile.psycheWeight,
-    };
-    
+    if (!activePersonaProfile) return;
+    setLocalPoints({
+      instinct: activePersonaProfile.instinctPoints,
+      logic: activePersonaProfile.logicPoints,
+      psyche: activePersonaProfile.psychePoints,
+    });
+  }, [activePersonaProfile]);
+
+  // Convert points to weights for animation
+  const currentWeights = {
+    instinct: pointsToWeight(localPoints.instinct),
+    logic: pointsToWeight(localPoints.logic),
+    psyche: pointsToWeight(localPoints.psyche),
+  };
+
+  // Animate weight transitions when local points change
+  useEffect(() => {
+    const targetWeights = currentWeights;
     const startWeights = { ...animatedWeights };
-    const duration = 150; // ms - fast transition
+    const duration = 150;
     const startTime = performance.now();
     
     const animate = (currentTime: number) => {
       const elapsed = currentTime - startTime;
       const progress = Math.min(elapsed / duration, 1);
-      
-      // Ease-out cubic for smooth deceleration
       const eased = 1 - Math.pow(1 - progress, 3);
       
       setAnimatedWeights({
@@ -532,58 +441,48 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
     
     requestAnimationFrame(animate);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userProfile?.logicWeight, userProfile?.instinctWeight, userProfile?.psycheWeight]);
+  }, [localPoints]);
   
-  // Load profiles when opened
-  useEffect(() => {
-    if (isOpen) {
-      getAllPersonaProfiles().then(setAllPersonaProfiles).catch(console.error);
-    }
-  }, [isOpen, setAllPersonaProfiles]);
-  
-  const handleSaveProfileName = async (profileId: string) => {
-    if (!tempProfileName.trim()) return;
-    try {
-      await updatePersonaProfileName(profileId, tempProfileName.trim());
-      const profiles = await getAllPersonaProfiles();
-      setAllPersonaProfiles(profiles);
-      const activeProfile = profiles.find(p => p.isActive);
-      if (activeProfile) setActivePersonaProfile(activeProfile);
-      setEditingProfileName(null);
-    } catch (err) {
-      console.error('Failed to update profile name:', err);
-    }
-  };
-  
-  const handleSwitchProfile = useCallback(async (profileId: string) => {
-    const currentActive = allPersonaProfiles.find(p => p.isActive);
-    if (currentActive?.id === profileId) return;
+  // Handle point changes from skill selector
+  const handlePointChange = useCallback(async (trait: 'instinct' | 'logic' | 'psyche', delta: number) => {
+    const newPoints = { ...localPoints };
+    const currentTotal = localPoints.instinct + localPoints.logic + localPoints.psyche;
+    const newValue = newPoints[trait] + delta;
     
-    try {
-      // Finalize the current conversation before switching profiles
-      if (currentConversation && messages.length > 1) {
-        finalizeConversation(currentConversation.id).catch(err => 
-          console.error('Failed to finalize conversation:', err)
-        );
-      }
-      
-      await setActivePersonaProfileBackend(profileId);
-      const profiles = await getAllPersonaProfiles();
-      setAllPersonaProfiles(profiles);
-      const activeProfile = profiles.find(p => p.isActive);
-      if (activeProfile) {
-        setActivePersonaProfile(activeProfile);
-        // Refresh user profile to get updated weights for the star chart
-        const updatedUserProfile = await getUserProfile();
-        setUserProfile(updatedUserProfile);
-        // Clear messages and start fresh with new profile
-        clearMessages();
-        setCurrentConversation(null);
-      }
-    } catch (err) {
-      console.error('Failed to switch profile:', err);
+    // Enforce constraints: min 2, max 6
+    if (newValue < 2 || newValue > 6) return;
+    
+    // Calculate new total
+    const newTotal = currentTotal + delta;
+    
+    // Only prevent increases if total would exceed 11 (no automatic reallocation)
+    // Allow decreases freely (no automatic reallocation)
+    if (delta > 0 && newTotal > 11) {
+      // Can't increase if it would exceed 11 total
+      return;
     }
-  }, [allPersonaProfiles, currentConversation, messages.length, setAllPersonaProfiles, setActivePersonaProfile, setUserProfile, clearMessages, setCurrentConversation]);
+    
+    // Allow the change (either increase within limit, or any decrease)
+    newPoints[trait] = newValue;
+    
+    setLocalPoints(newPoints);
+    
+    // Save points separately (not converted to weights)
+    try {
+      await updatePoints(newPoints.instinct, newPoints.logic, newPoints.psyche);
+      // Refresh active persona profile to get updated points
+      const updatedPersona = await getActivePersonaProfile();
+      if (updatedPersona) {
+        setActivePersonaProfile(updatedPersona);
+      }
+      // Also refresh user profile for weights (which may have changed from background analysis)
+      const updatedProfile = await getUserProfile();
+      setUserProfile(updatedProfile);
+    } catch (err) {
+      console.error('Failed to update points:', err);
+    }
+  }, [localPoints, setUserProfile, setActivePersonaProfile]);
+
   // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -596,22 +495,10 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
         e.preventDefault();
         setShowApiModal(true);
       }
-      // ⌘1, ⌘2, ⌘3 to switch profiles (matches AGENT_ORDER: psyche, logic, instinct)
-      if ((e.metaKey || e.ctrlKey) && isOpen && !showApiModal && !editingProfileName) {
-        const hotkeyMap: Record<string, string> = { '1': 'psyche', '2': 'logic', '3': 'instinct' };
-        const trait = hotkeyMap[e.key];
-        if (trait) {
-          e.preventDefault();
-          const profileForTrait = allPersonaProfiles.find(p => p.dominantTrait === trait);
-          if (profileForTrait && !profileForTrait.isActive) {
-            handleSwitchProfile(profileForTrait.id);
-          }
-        }
-      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose, showApiModal, editingProfileName, allPersonaProfiles, handleSwitchProfile]);
+  }, [isOpen, onClose, showApiModal]);
 
   return (
     <AnimatePresence>
@@ -636,11 +523,13 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
           >
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-smoke/30 flex-shrink-0">
-              <h2 className="font-sans text-base text-ivory font-medium">Profile</h2>
+              <div className="inline-flex px-2.5 py-1 rounded-full bg-smoke/20 border border-smoke/40">
+                <h2 className="font-mono text-xs text-pearl font-medium uppercase tracking-wider">PROFILE</h2>
+              </div>
               {/* ESC button */}
               <button
                 onClick={onClose}
-                className="p-1 rounded text-[10px] font-mono text-ash bg-smoke/30 hover:bg-smoke/50 border border-smoke/50 transition-colors cursor-pointer aspect-square flex items-center justify-center"
+                className="p-1 rounded text-[9px] font-mono text-ash bg-smoke/30 hover:bg-smoke/50 border border-smoke/50 transition-colors cursor-pointer aspect-square flex items-center justify-center"
               >
                 ESC
               </button>
@@ -651,19 +540,23 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
               {/* Agent weights - Radar chart */}
               {userProfile && (
                 <section>
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="text-xs text-ash font-mono flex items-center gap-1.5">
-                      <Calendar className="w-3 h-3 text-ash/60" strokeWidth={1.5} />
-                      Created on {formatDate(userProfile.createdAt)}
-                    </span>
-                    <span className="text-xs text-ash font-mono">{userProfile.totalMessages} messages</span>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2 text-[11px] text-ash/70 font-mono">
+                      <Calendar className="w-4 h-4 text-ash/60" strokeWidth={1.5} />
+                      <span>Started on {formatDate(userProfile.createdAt)}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[11px] text-ash/70 font-mono">
+                      <span className="tabular-nums">{userProfile.totalMessages}</span>
+                      <span className="text-ash/50">messages</span>
+                    </div>
                   </div>
                   
                   <div 
-                    className="rounded-xl pt-4 pb-4 px-4 border border-smoke/30 relative overflow-hidden"
+                    className="rounded-xl p-4 border border-smoke/30 relative overflow-hidden"
                     style={{
                       // Dynamic gradient based on INVERTED weights (lower = more dominant)
                       // Colors: Logic #00D4FF, Psyche #E040FB, Instinct #EF4444
+                      paddingBottom: '67px',
                       background: (() => {
                         const logicInv = 1 - userProfile.logicWeight;
                         const psycheInv = 1 - userProfile.psycheWeight;
@@ -680,6 +573,38 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                       })(),
                     }}
                   >
+                    {/* Points display - top right inside the box */}
+                    <div className="absolute top-4 right-4 z-20">
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-smoke/30 bg-obsidian/90 backdrop-blur-sm">
+                        <span 
+                          className={`text-xs font-bold tabular-nums ${
+                            localPoints.instinct + localPoints.logic + localPoints.psyche === 11
+                              ? 'text-emerald-400'
+                              : 'text-amber-400'
+                          }`}
+                          style={{ fontFamily: 'var(--font-mono)' }}
+                        >
+                          {localPoints.instinct + localPoints.logic + localPoints.psyche}
+                        </span>
+                        <span className="text-[10px] font-mono text-ash/40">
+                          / 11
+                        </span>
+                      </div>
+                    </div>
+                    
+                    {/* Info tooltip */}
+                    <div className="absolute top-4 left-4 z-50">
+                      <div className="group/info relative flex-shrink-0">
+                        <Info className="w-4 h-4 text-ash/50 hover:text-ash/70 transition-colors cursor-pointer" strokeWidth={1.5} />
+                        {/* Tooltip */}
+                        <div className="absolute left-0 top-full mt-2 z-50 w-64 px-3 py-2 bg-obsidian/95 backdrop-blur-xl border border-smoke/40 rounded-lg opacity-0 invisible group-hover/info:opacity-100 group-hover/info:visible transition-all shadow-xl pointer-events-none">
+                          <p className="text-[10px] text-ash/70 font-mono leading-relaxed">
+                            Adjust how the Governor thinks—give more points to the voices you want to hear most often. Choose your dominant trait to shape how the Governor sees and talks to you.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    
                     {/* Subtle radial overlay for depth */}
                     <div 
                       className="absolute inset-0 opacity-20"
@@ -701,107 +626,22 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                       }}
                     />
                     
-                    <div className="relative z-10 pt-[84px]">
+                    <div className="relative z-10 pt-[132px]">
                       <RadarChart 
                         weights={{
                           instinct: animatedWeights.instinct,
                           logic: animatedWeights.logic,
                           psyche: animatedWeights.psyche,
                         }}
-                        targetWeights={{
-                          instinct: userProfile.instinctWeight,
-                          logic: userProfile.logicWeight,
-                          psyche: userProfile.psycheWeight,
-                        }}
-                        profiles={allPersonaProfiles.map(p => ({
-                          id: p.id,
-                          name: p.name,
-                          dominantTrait: p.dominantTrait,
-                          isActive: p.isActive,
-                          isDefault: p.isDefault,
-                        }))}
-                        onSwitchProfile={handleSwitchProfile}
-                        editingProfileName={editingProfileName}
-                        tempProfileName={tempProfileName}
-                        onStartEdit={(id, name) => {
-                          setEditingProfileName(id);
-                          setTempProfileName(name);
-                        }}
-                        onSaveEdit={handleSaveProfileName}
-                        onCancelEdit={() => setEditingProfileName(null)}
-                        onTempNameChange={setTempProfileName}
+                        localPoints={localPoints}
+                        onPointChange={handlePointChange}
+                        selectedDominantTrait={selectedDominantTrait}
+                        onDominantTraitSelect={setSelectedDominantTrait}
                       />
                     </div>
-                    
-                    {/* Profile description */}
-                    {(() => {
-                      const profile = getProfileDescription(
-                        { instinct: userProfile.instinctWeight, logic: userProfile.logicWeight, psyche: userProfile.psycheWeight },
-                        userProfile.totalMessages
-                      );
-                      return (
-                        <div className="relative z-10 mt-4 pt-3 border-t border-smoke/20">
-                          {/* Personality type header */}
-                          <div className="text-center mb-2">
-                            <div className="flex items-center justify-center gap-2 mb-1">
-                              <span 
-                                className="text-sm font-sans font-medium"
-                                style={{
-                                  background: 'linear-gradient(90deg, #00D4FF, #E040FB)',
-                                  backgroundClip: 'text',
-                                  WebkitBackgroundClip: 'text',
-                                  WebkitTextFillColor: 'transparent',
-                                }}
-                              >
-                                {profile.title}
-                              </span>
-                            </div>
-                          </div>
-                          <p className="text-xs text-silver font-mono text-center leading-relaxed mb-2">
-                            {profile.description}
-                          </p>
-                          
-                          {/* Confidence bar */}
-                          <div className="mb-3">
-                            <div className="h-1 bg-smoke/30 rounded-full overflow-hidden">
-                              <div 
-                                className="h-full rounded-full transition-all duration-500"
-                                style={{ 
-                                  width: `${profile.confidence}%`,
-                                  background: profile.confidence >= 100 
-                                    ? 'linear-gradient(90deg, #00D4FF, #E040FB)'
-                                    : 'rgba(148, 163, 184, 0.5)',
-                                }}
-                              />
-                            </div>
-                            <p className="text-[10px] text-ash/60 font-mono text-center mt-1">
-                              {profile.forming}
-                            </p>
-                          </div>
-                          
-                          {/* 16personalities credit */}
-                          <a 
-                            href="https://www.16personalities.com" 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="flex items-center justify-center gap-1 text-[9px] text-ash/40 hover:text-ash/70 font-mono transition-colors"
-                          >
-                            <ExternalLink className="w-2.5 h-2.5" strokeWidth={1.5} />
-                            Inspired by 16personalities.com
-                          </a>
-                          
-                        </div>
-                      );
-                    })()}
                   </div>
-                  
-                  {/* Tip explaining profile switching - below the box */}
-                  <p className="text-[10px] text-ash/40 font-mono text-center mt-3">
-                    Click to switch profiles. Switching profiles changes how often a given agent will respond and what types of topics they focus on.
-                  </p>
                 </section>
               )}
-
 
             </div>
 
@@ -811,7 +651,7 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
             <div className="flex items-center justify-between px-4 py-3 border-t border-smoke/30 flex-shrink-0">
               <div className="flex items-center gap-1.5">
                 <img src={governorTransparent} alt="" className="w-4 h-4 opacity-60" />
-                <p className="text-xs text-ash/60 font-mono">Intersect v1.0.1</p>
+                <p className="text-xs text-ash/60 font-mono">Intersect v1.1.0</p>
               </div>
               <div className="flex items-center gap-2">
                 {userProfile?.apiKey && (

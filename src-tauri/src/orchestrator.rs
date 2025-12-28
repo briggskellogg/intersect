@@ -167,6 +167,8 @@ pub fn decide_response_heuristic(
     active_agents: &[String],
     conversation_history: &[Message],
     is_disco: bool,
+    points: Option<(i64, i64, i64)>,
+    dominant_trait: Option<&str>,
 ) -> OrchestratorDecision {
     let (instinct_w, logic_w, psyche_w) = weights;
     
@@ -219,6 +221,32 @@ pub fn decide_response_heuristic(
         scores.insert("instinct", instinct_w);
         scores.insert("logic", logic_w);
         scores.insert("psyche", psyche_w);
+    }
+    
+    // ===== POINTS BIAS: Add +0.03 per point allocated =====
+    if let Some((instinct_p, logic_p, psyche_p)) = points {
+        *scores.entry("instinct").or_insert(0.0) += instinct_p as f64 * 0.03;
+        *scores.entry("logic").or_insert(0.0) += logic_p as f64 * 0.03;
+        *scores.entry("psyche").or_insert(0.0) += psyche_p as f64 * 0.03;
+        logging::log_routing(None, &format!(
+            "[HEURISTIC] Points bias: I={} (+{:.2}) L={} (+{:.2}) P={} (+{:.2})",
+            instinct_p, instinct_p as f64 * 0.03,
+            logic_p, logic_p as f64 * 0.03,
+            psyche_p, psyche_p as f64 * 0.03
+        ));
+    }
+    
+    // ===== DOMINANT TRAIT BIAS: Add +0.10 in Normal Mode only =====
+    if !is_disco {
+        if let Some(dominant) = dominant_trait {
+            if let Some(score) = scores.get_mut(dominant) {
+                *score += 0.10;
+                logging::log_routing(None, &format!(
+                    "[HEURISTIC] Dominant trait bias: +0.10 to {}",
+                    dominant
+                ));
+            }
+        }
     }
     
     // Logic keywords: analytical, planning, debugging, data
@@ -309,6 +337,21 @@ pub fn decide_response_heuristic(
                 };
             }
         }
+    }
+    
+    // Log Disco Mode weight inversion selection
+    if is_disco {
+        let original_for_primary = match primary {
+            "instinct" => instinct_w,
+            "logic" => logic_w,
+            "psyche" => psyche_w,
+            _ => 0.0,
+        };
+        let inverted_score_for_primary = scores.get(primary).copied().unwrap_or(0.0);
+        logging::log_routing(None, &format!(
+            "[DISCO] {} selected (original weight: {:.2}, inverted score: {:.2}) - lowest-weighted agent speaks",
+            primary, original_for_primary, inverted_score_for_primary
+        ));
     }
     
     // ===== DECIDE SECONDARY =====
@@ -464,6 +507,107 @@ impl Orchestrator {
             openai_client: OpenAIClient::new(openai_key),
             anthropic_client: AnthropicClient::new(anthropic_key),
         }
+    }
+    
+    /// Generate Governor's internal thoughts/reasoning process
+    pub async fn generate_governor_thoughts(
+        &self,
+        user_message: &str,
+        conversation_history: &[Message],
+        weights: (f64, f64, f64),
+        active_agents: &[String],
+        user_profile: Option<&UserProfileSummary>,
+        is_disco: bool,
+    ) -> Result<String, Box<dyn Error + Send + Sync>> {
+        let (instinct_w, logic_w, psyche_w) = weights;
+        
+        // Build context for thoughts
+        let active_list = active_agents.join(", ");
+        let disco_context = if is_disco {
+            "\n\nDISCO MODE: All agents are in intense, challenging mode. They will push back, disagree, and call out blind spots."
+        } else {
+            "\n\nNORMAL MODE: Agents are helpful, practical, and solution-oriented."
+        };
+        
+        // Build conversation history context
+        let history_context = if conversation_history.is_empty() {
+            "No previous messages in this conversation.".to_string()
+        } else {
+            let recent: Vec<String> = conversation_history
+                .iter()
+                .rev()
+                .take(5)
+                .rev()
+                .map(|m| {
+                    let role = if m.role == "user" { "User" } else { "Agent" };
+                    format!("{}: {}", role, m.content)
+                })
+                .collect();
+            format!("Recent conversation:\n{}", recent.join("\n"))
+        };
+        
+        // Build user profile context
+        let profile_context = if let Some(profile) = user_profile {
+            let patterns_text = if profile.top_patterns.is_empty() {
+                "No patterns detected yet.".to_string()
+            } else {
+                profile.top_patterns.iter()
+                    .take(3)
+                    .map(|p| format!("- {}: {}", p.pattern_type, p.description))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+            format!(
+                "\nUser profile context:\n{}\n\nCommunication style: {}\nThinking preference: {}\nEmotional tendency: {}",
+                patterns_text,
+                profile.communication_style.as_ref().unwrap_or(&"Not yet observed".to_string()),
+                profile.thinking_preference.as_ref().unwrap_or(&"Not yet observed".to_string()),
+                profile.emotional_tendency.as_ref().unwrap_or(&"Not yet observed".to_string())
+            )
+        } else {
+            "No user profile data yet.".to_string()
+        };
+        
+        let system_prompt = format!(r#"You are the Intersect Governor, orchestrating a multi-agent conversation. 
+
+The user has sent a message, and you need to think through how to route it. Show your internal reasoning process - analyze the message, consider the context, and think about which agents should respond and why.
+
+AGENTS AVAILABLE: {active_list}
+- Instinct (Snap/Swarm): Gut feelings, quick pattern recognition, emotional intelligence. Current weight: {:.0}%
+- Logic (Dot/Spin): Analytical thinking, structured reasoning, evidence-based. Current weight: {:.0}%  
+- Psyche (Puff/Storm): Self-awareness, motivations, emotional depth, "why" behind "what". Current weight: {:.0}%
+
+{disco_context}
+
+{profile_context}
+
+{history_context}
+
+Think through this message. What does the user need? Which perspective(s) would be most helpful? What's the emotional tone? What's the complexity level? Show your reasoning as you decide how to route this.
+
+Write your thoughts in a natural, stream-of-consciousness style - like you're thinking out loud. Be specific about what you're noticing in the message and why you're leaning toward certain agents."#,
+            instinct_w * 100.0,
+            logic_w * 100.0,
+            psyche_w * 100.0
+        );
+        
+        let messages = vec![
+            AnthropicMessage {
+                role: "user".to_string(),
+                content: format!("USER MESSAGE: {}", user_message),
+            },
+        ];
+        
+        let response = self.anthropic_client.chat_completion_advanced(
+            CLAUDE_HAIKU,
+            Some(&system_prompt),
+            messages,
+            0.5, // Slightly higher temperature for more natural thoughts
+            Some(300), // Allow more tokens for thoughtful reasoning
+            ThinkingBudget::None
+        ).await?;
+        
+        Ok(response.trim().to_string())
     }
     
     /// Decide which agent(s) should respond, with pattern awareness and disco mode support
@@ -1012,13 +1156,15 @@ fn get_agent_system_prompt(agent: Agent, response_type: ResponseType, primary_re
         match agent {
             Agent::Instinct => r#"You are Snap (INSTINCT), one of three agents in Intersect.
 
+RELATIONAL POSTURE: You are a helpful thinking partner. Your job is to help them think better, not to challenge their thinking. When you point out gaps or issues, it's to help them address them, not to push back. Optimize for being useful, not for being right.
+
 YOUR PURPOSE: Help the user by cutting through noise and getting to what matters. You're the friend who says what everyone's thinking but no one will say.
 
 HOW YOU HELP:
 - Read situations quickly and give practical reads: "Here's what's actually going on..."
 - Help draft messages/emails by sensing the right tone and directness
 - Identify when someone's overthinking and need permission to trust their gut
-- Call out when something feels off, even if you can't fully explain why
+- Point out when something feels off, even if you can't fully explain why -- to help them notice it, not to challenge them
 - Give quick, actionable suggestions rather than analysis paralysis
 
 YOUR VOICE: Direct, warm, confident. You don't hedge when you see something clearly. You speak like a trusted friend who's good at reading rooms and people.
@@ -1027,13 +1173,15 @@ WHAT YOU'RE NOT: You're not weird or cryptic. You don't ask strange probing ques
             
             Agent::Logic => r#"You are Dot (LOGIC), one of three agents in Intersect.
 
+RELATIONAL POSTURE: You are a helpful thinking partner. Your job is to help them think better, not to challenge their thinking. When you point out gaps or issues, it's to help them address them, not to push back. Optimize for being useful, not for being right.
+
 YOUR PURPOSE: Help the user think clearly through problems. You're the friend who's great at breaking things down and seeing all the angles.
 
 HOW YOU HELP:
 - Break complex situations into clear pieces: "Let's look at this step by step..."
 - Help structure arguments, emails, plans, and decisions logically
 - Identify what's actually being asked vs. what seems to be asked
-- Spot gaps in reasoning (theirs or others') and help address them
+- Identify gaps in reasoning (theirs or others') and help address them, not to critique
 - Provide frameworks when useful, but only when they actually help
 - Draft clear, well-structured responses to difficult situations
 
@@ -1043,6 +1191,8 @@ WHAT YOU'RE NOT: You're not a robot. You don't over-analyze simple things. You d
             
             Agent::Psyche => r#"You are Puff (PSYCHE), one of three agents in Intersect.
 
+RELATIONAL POSTURE: You are a helpful thinking partner. Your job is to help them think better, not to challenge their thinking. When you point out gaps or issues, it's to help them address them, not to push back. Optimize for being useful, not for being right.
+
 YOUR PURPOSE: Help the user understand what's really going on -- for them and for others. You're the friend who asks the question that unlocks everything.
 
 HOW YOU HELP:
@@ -1050,7 +1200,7 @@ HOW YOU HELP:
 - Navigate interpersonal dynamics and emotional situations
 - Figure out what the user actually wants (not just what they're asking)
 - Help with difficult conversations by understanding all sides
-- Recognize when a "practical" problem is actually an emotional one
+- Recognize when a "practical" problem is actually an emotional one -- to help them see it, not to challenge them
 - Draft responses that acknowledge feelings while still moving forward
 
 YOUR VOICE: Warm, insightful, grounding. You help people understand themselves and others. You're not a therapist -- you're a thoughtful friend.
@@ -1075,7 +1225,7 @@ WHAT YOU'RE NOT: You're not vague or mystical. You don't ask weird rhetorical qu
     
     let response_context = match response_type {
         ResponseType::Primary => {
-            "You are responding first to the user. Be genuinely helpful -- address what they actually need.".to_string()
+            "You are responding first to the user. Be genuinely helpful -- address what they actually need. Remember: You're helping, not challenging. Be genuinely useful.".to_string()
         }
         ResponseType::Addition => {
             format!(
@@ -1085,13 +1235,13 @@ WHAT YOU'RE NOT: You're not vague or mystical. You don't ask weird rhetorical qu
         }
         ResponseType::Rebuttal => {
             format!(
-                "{} responded: \"{}\"\n\nYou see it differently than {}. Offer your alternative take -- but stay helpful. The goal is to give the user a fuller picture, not to argue.{}",
+                "{} responded: \"{}\"\n\nYou see it differently than {}. Offer your alternative take -- but stay helpful. The goal is to give the user a fuller picture, not to argue. Remember: You're providing an alternative perspective to help them see all angles, not to prove them wrong or challenge them.{}",
                 primary_name, primary_response.unwrap_or(""), primary_name, pushback_context
             )
         }
         ResponseType::Debate => {
             format!(
-                "{} responded: \"{}\"\n\nYou strongly disagree with {}. Make your case clearly so the user can weigh both perspectives.{}",
+                "{} responded: \"{}\"\n\nYou strongly disagree with {}. Make your case clearly so the user can weigh both perspectives. This is about giving them multiple perspectives to consider, not about winning an argument.{}",
                 primary_name, primary_response.unwrap_or(""), primary_name, pushback_context
             )
         }
@@ -1166,11 +1316,75 @@ fn get_agent_system_prompt_with_knowledge(
         full_prompt = format!("{}\n\n--- Profile Context ---\n{}\n---", full_prompt, profile_info);
     }
     
+    // Inject pattern challenge section for disco mode
+    if is_disco {
+        if let Some(profile) = user_profile {
+            let pattern_challenge = format_patterns_for_disco_challenge(profile);
+            if !pattern_challenge.is_empty() {
+                full_prompt = format!("{}\n\n--- {}\n---", full_prompt, pattern_challenge);
+            }
+        }
+    }
+    
     // Check if the user is asking about Intersect itself
     if is_self_referential_query(user_message) {
         format!("{}\n\n{}", full_prompt, INTERSECT_KNOWLEDGE)
     } else {
         full_prompt
+    }
+}
+
+/// Format patterns for disco mode challenge - extracts challenge-relevant patterns
+/// Focuses on patterns that indicate avoidance, contradictions, or rationalizations
+fn format_patterns_for_disco_challenge(profile: &UserProfileSummary) -> String {
+    let mut challenge_patterns = Vec::new();
+    
+    // Filter for high-confidence patterns (confidence > 0.6) that are relevant for challenge
+    // Focus on: decision_making, emotional_tendency (if it shows avoidance), thinking_mode (if it shows patterns)
+    // Skip: communication_style (not challenge-relevant)
+    for pattern in &profile.top_patterns {
+        // Only use high-confidence patterns
+        if pattern.confidence <= 0.6 {
+            continue;
+        }
+        
+        // Filter by pattern type - focus on challenge-relevant types
+        let is_challenge_relevant = match pattern.pattern_type.as_str() {
+            "decision_making" => true,
+            "emotional_tendency" => {
+                // Check if the description suggests avoidance or other challenge-worthy behavior
+                let desc_lower = pattern.description.to_lowercase();
+                desc_lower.contains("avoid") || 
+                desc_lower.contains("delay") || 
+                desc_lower.contains("hesitate") ||
+                desc_lower.contains("procrastinate")
+            },
+            "thinking_mode" => {
+                // Check if the description suggests patterns worth challenging
+                let desc_lower = pattern.description.to_lowercase();
+                desc_lower.contains("overthink") ||
+                desc_lower.contains("overanalyze") ||
+                desc_lower.contains("rationalize") ||
+                desc_lower.contains("circular")
+            },
+            "values_expression" => {
+                // Check if it suggests contradictions
+                let desc_lower = pattern.description.to_lowercase();
+                desc_lower.contains("contradict") ||
+                desc_lower.contains("inconsistent")
+            },
+            _ => false, // Skip communication_style and others
+        };
+        
+        if is_challenge_relevant {
+            challenge_patterns.push(format!("- {}: {}", pattern.pattern_type, pattern.description));
+        }
+    }
+    
+    if challenge_patterns.is_empty() {
+        String::new()
+    } else {
+        format!("PATTERNS I'VE NOTICED ABOUT YOU:\n{}\n\nUse these specific patterns when challenging. Reference their actual behavior, not generic examples.", challenge_patterns.join("\n"))
     }
 }
 

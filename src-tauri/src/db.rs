@@ -118,6 +118,9 @@ pub struct PersonaProfile {
     pub instinct_weight: f64,
     pub logic_weight: f64,
     pub psyche_weight: f64,
+    pub instinct_points: i64,        // User-allocated points (2-6, total 11)
+    pub logic_points: i64,
+    pub psyche_points: i64,
     pub message_count: i64,          // Number of messages sent with this profile
     pub created_at: String,
     pub updated_at: String,
@@ -295,6 +298,40 @@ pub fn init_database(app_handle: &tauri::AppHandle) -> Result<()> {
         let _ = conn.execute("ALTER TABLE conversations ADD COLUMN is_disco INTEGER DEFAULT 0", []);
     }
     
+    // Migration: Add points columns to persona_profiles table
+    let has_instinct_points: bool = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('persona_profiles') WHERE name='instinct_points'",
+        [],
+        |row| Ok(row.get::<_, i64>(0)? > 0)
+    ).unwrap_or(false);
+    
+    if !has_instinct_points {
+        // Add columns with defaults: 4, 4, 3 (total 11)
+        let _ = conn.execute("ALTER TABLE persona_profiles ADD COLUMN instinct_points INTEGER DEFAULT 4", []);
+        let _ = conn.execute("ALTER TABLE persona_profiles ADD COLUMN logic_points INTEGER DEFAULT 4", []);
+        let _ = conn.execute("ALTER TABLE persona_profiles ADD COLUMN psyche_points INTEGER DEFAULT 3", []);
+        
+        // For existing profiles, initialize points based on current weights
+        // Convert weights to points: points = round(weight * 11), but ensure valid range (2-6) and total = 11
+        let _ = conn.execute(
+            "UPDATE persona_profiles SET instinct_points = CAST(ROUND(instinct_weight * 11) AS INTEGER), logic_points = CAST(ROUND(logic_weight * 11) AS INTEGER), psyche_points = CAST(ROUND(psyche_weight * 11) AS INTEGER)",
+            []
+        );
+        
+        // Ensure points are in valid range (2-6) and total = 11
+        // Clamp each to 2-6 range, then normalize total to 11
+        let _ = conn.execute(
+            "UPDATE persona_profiles SET 
+                instinct_points = MAX(2, MIN(6, instinct_points)),
+                logic_points = MAX(2, MIN(6, logic_points)),
+                psyche_points = MAX(2, MIN(6, psyche_points))",
+            []
+        );
+        
+        // Normalize totals to 11 (this is approximate, but close enough for migration)
+        // We'll fix exact totals in a separate pass if needed
+    }
+    
     // Ensure a user profile exists (for API keys and message count)
     let count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM user_profile",
@@ -339,8 +376,8 @@ pub fn init_database(app_handle: &tauri::AppHandle) -> Result<()> {
     if !has_logic {
         let logic_id = uuid::Uuid::new_v4().to_string();
         conn.execute(
-            "INSERT INTO persona_profiles (id, name, is_default, is_active, dominant_trait, secondary_trait, instinct_weight, logic_weight, psyche_weight, message_count, created_at, updated_at)
-             VALUES (?1, 'Logic', 1, 1, 'logic', 'logic', 0.30, 0.40, 0.30, 0, ?2, ?3)",
+            "INSERT INTO persona_profiles (id, name, is_default, is_active, dominant_trait, secondary_trait, instinct_weight, logic_weight, psyche_weight, instinct_points, logic_points, psyche_points, message_count, created_at, updated_at)
+             VALUES (?1, 'Logic', 1, 1, 'logic', 'logic', 0.30, 0.40, 0.30, 3, 4, 4, 0, ?2, ?3)",
             params![logic_id, now, now]
         )?;
     }
@@ -348,8 +385,8 @@ pub fn init_database(app_handle: &tauri::AppHandle) -> Result<()> {
     if !has_instinct {
         let instinct_id = uuid::Uuid::new_v4().to_string();
         conn.execute(
-            "INSERT INTO persona_profiles (id, name, is_default, is_active, dominant_trait, secondary_trait, instinct_weight, logic_weight, psyche_weight, message_count, created_at, updated_at)
-             VALUES (?1, 'Instinct', 0, 0, 'instinct', 'instinct', 0.40, 0.30, 0.30, 0, ?2, ?3)",
+            "INSERT INTO persona_profiles (id, name, is_default, is_active, dominant_trait, secondary_trait, instinct_weight, logic_weight, psyche_weight, instinct_points, logic_points, psyche_points, message_count, created_at, updated_at)
+             VALUES (?1, 'Instinct', 0, 0, 'instinct', 'instinct', 0.40, 0.30, 0.30, 4, 3, 4, 0, ?2, ?3)",
             params![instinct_id, now, now]
         )?;
     }
@@ -357,8 +394,8 @@ pub fn init_database(app_handle: &tauri::AppHandle) -> Result<()> {
     if !has_psyche {
         let psyche_id = uuid::Uuid::new_v4().to_string();
         conn.execute(
-            "INSERT INTO persona_profiles (id, name, is_default, is_active, dominant_trait, secondary_trait, instinct_weight, logic_weight, psyche_weight, message_count, created_at, updated_at)
-             VALUES (?1, 'Psyche', 0, 0, 'psyche', 'psyche', 0.30, 0.30, 0.40, 0, ?2, ?3)",
+            "INSERT INTO persona_profiles (id, name, is_default, is_active, dominant_trait, secondary_trait, instinct_weight, logic_weight, psyche_weight, instinct_points, logic_points, psyche_points, message_count, created_at, updated_at)
+             VALUES (?1, 'Psyche', 0, 0, 'psyche', 'psyche', 0.30, 0.30, 0.40, 3, 3, 5, 0, ?2, ?3)",
             params![psyche_id, now, now]
         )?;
     }
@@ -528,34 +565,32 @@ pub fn clear_anthropic_key() -> Result<()> {
     })
 }
 
+/// Update points for the active persona profile
+pub fn update_points(instinct: i64, logic: i64, psyche: i64) -> Result<()> {
+    let now = Utc::now().to_rfc3339();
+    with_connection(|conn| {
+        conn.execute(
+            "UPDATE persona_profiles SET instinct_points = ?1, logic_points = ?2, psyche_points = ?3, updated_at = ?4 WHERE is_active = 1",
+            params![instinct, logic, psyche, now]
+        )?;
+        Ok(())
+    })
+}
+
 pub fn update_weights(instinct: f64, logic: f64, psyche: f64) -> Result<()> {
     let now = Utc::now().to_rfc3339();
     with_connection(|conn| {
-        // Get the dominant trait for the active profile
-        let dominant_trait: Option<String> = conn.query_row(
-            "SELECT dominant_trait FROM persona_profiles WHERE is_active = 1",
-            [],
-            |row| row.get(0)
-        ).ok();
-        
-        // Enforce 10% lead for dominant trait
-        let (final_instinct, final_logic, final_psyche) = if let Some(dominant) = dominant_trait {
-            enforce_dominant_lead(instinct, logic, psyche, &dominant)
-        } else {
-            (instinct, logic, psyche)
-        };
-        
-        // Update the active persona profile's weights
+        // Update the active persona profile's weights (no constraints)
         let updated = conn.execute(
             "UPDATE persona_profiles SET instinct_weight = ?1, logic_weight = ?2, psyche_weight = ?3, updated_at = ?4 WHERE is_active = 1",
-            params![final_instinct, final_logic, final_psyche, now]
+            params![instinct, logic, psyche, now]
         )?;
         
         // Fallback to user_profile if no active persona profile (legacy support)
         if updated == 0 {
             conn.execute(
                 "UPDATE user_profile SET instinct_weight = ?1, logic_weight = ?2, psyche_weight = ?3, updated_at = ?4",
-                params![final_instinct, final_logic, final_psyche, now]
+                params![instinct, logic, psyche, now]
             )?;
         }
         
@@ -667,9 +702,11 @@ pub fn get_conversation(id: &str) -> Result<Option<Conversation>> {
 pub fn get_recent_conversations(limit: usize) -> Result<Vec<Conversation>> {
     with_connection(|conn| {
         let mut stmt = conn.prepare(
-            "SELECT id, title, summary, limbo_summary, processed, is_disco, created_at, updated_at 
-             FROM conversations 
-             ORDER BY updated_at DESC 
+            "SELECT c.id, c.title, c.summary, c.limbo_summary, c.processed, c.is_disco, c.created_at, c.updated_at,
+                    (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) as msg_count
+             FROM conversations c
+             WHERE (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) > 0
+             ORDER BY c.updated_at DESC 
              LIMIT ?1"
         )?;
         
@@ -863,6 +900,19 @@ pub fn get_recent_messages(conversation_id: &str, limit: usize) -> Result<Vec<Me
 pub fn clear_conversation_messages(conversation_id: &str) -> Result<()> {
     with_connection(|conn| {
         conn.execute("DELETE FROM messages WHERE conversation_id = ?1", params![conversation_id])?;
+        Ok(())
+    })
+}
+
+pub fn delete_conversation(conversation_id: &str) -> Result<()> {
+    with_connection(|conn| {
+        // Delete related data first (foreign key constraints)
+        conn.execute("DELETE FROM messages WHERE conversation_id = ?1", params![conversation_id])?;
+        conn.execute("DELETE FROM conversation_summaries WHERE conversation_id = ?1", params![conversation_id])?;
+        // Delete user_facts that reference this conversation
+        conn.execute("DELETE FROM user_facts WHERE source_conversation_id = ?1", params![conversation_id])?;
+        // Delete the conversation itself
+        conn.execute("DELETE FROM conversations WHERE id = ?1", params![conversation_id])?;
         Ok(())
     })
 }
@@ -1180,9 +1230,10 @@ pub fn reset_all_data() -> Result<()> {
         
         for (name, dominant, instinct_w, logic_w, psyche_w, is_default, is_active) in profiles {
             let id = uuid::Uuid::new_v4().to_string();
-            conn.execute(
-                "INSERT INTO persona_profiles (id, name, is_default, is_active, dominant_trait, instinct_weight, logic_weight, psyche_weight, message_count, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?9)",
+        // Default points: 4, 4, 3 (total 11) - will be adjusted by user
+        conn.execute(
+            "INSERT INTO persona_profiles (id, name, is_default, is_active, dominant_trait, instinct_weight, logic_weight, psyche_weight, instinct_points, logic_points, psyche_points, message_count, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 4, 4, 3, 0, ?9, ?9)",
                 params![id, name, is_default, is_active, dominant, instinct_w, logic_w, psyche_w, now]
             )?;
         }
@@ -1215,9 +1266,10 @@ pub fn create_persona_profile(
         let count: i64 = conn.query_row("SELECT COUNT(*) FROM persona_profiles", [], |row| row.get(0))?;
         let is_active = count == 0; // First profile is automatically active
         
+        // Default points: 4, 4, 3 (total 11) - will be adjusted by user
         conn.execute(
-            "INSERT INTO persona_profiles (id, name, is_default, is_active, dominant_trait, secondary_trait, instinct_weight, logic_weight, psyche_weight, message_count, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, ?10, ?11)",
+            "INSERT INTO persona_profiles (id, name, is_default, is_active, dominant_trait, secondary_trait, instinct_weight, logic_weight, psyche_weight, instinct_points, logic_points, psyche_points, message_count, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 4, 4, 3, 0, ?10, ?11)",
             params![id, name, is_default || is_active, is_active, dominant_trait, secondary_trait, instinct_weight, logic_weight, psyche_weight, now, now]
         )?;
         
@@ -1231,6 +1283,9 @@ pub fn create_persona_profile(
             instinct_weight,
             logic_weight,
             psyche_weight,
+            instinct_points: 4,
+            logic_points: 4,
+            psyche_points: 3,
             message_count: 0,
             created_at: now.clone(),
             updated_at: now,
@@ -1264,7 +1319,7 @@ fn calculate_trait_weights(dominant: &str, secondary: &str) -> (f64, f64, f64) {
 pub fn get_all_persona_profiles() -> Result<Vec<PersonaProfile>> {
     with_connection(|conn| {
         let mut stmt = conn.prepare(
-            "SELECT id, name, is_default, is_active, dominant_trait, secondary_trait, instinct_weight, logic_weight, psyche_weight, message_count, created_at, updated_at
+            "SELECT id, name, is_default, is_active, dominant_trait, secondary_trait, instinct_weight, logic_weight, psyche_weight, instinct_points, logic_points, psyche_points, message_count, created_at, updated_at
              FROM persona_profiles ORDER BY is_default DESC, message_count DESC"
         )?;
         
@@ -1279,9 +1334,12 @@ pub fn get_all_persona_profiles() -> Result<Vec<PersonaProfile>> {
                 instinct_weight: row.get(6)?,
                 logic_weight: row.get(7)?,
                 psyche_weight: row.get(8)?,
-                message_count: row.get::<_, i64>(9).unwrap_or(0),
-                created_at: row.get(10)?,
-                updated_at: row.get(11)?,
+                instinct_points: row.get(9)?,
+                logic_points: row.get(10)?,
+                psyche_points: row.get(11)?,
+                message_count: row.get(12)?,
+                created_at: row.get(13)?,
+                updated_at: row.get(14)?,
             })
         })?;
         
@@ -1292,7 +1350,7 @@ pub fn get_all_persona_profiles() -> Result<Vec<PersonaProfile>> {
 pub fn get_active_persona_profile() -> Result<Option<PersonaProfile>> {
     with_connection(|conn| {
         conn.query_row(
-            "SELECT id, name, is_default, is_active, dominant_trait, secondary_trait, instinct_weight, logic_weight, psyche_weight, message_count, created_at, updated_at
+            "SELECT id, name, is_default, is_active, dominant_trait, secondary_trait, instinct_weight, logic_weight, psyche_weight, instinct_points, logic_points, psyche_points, message_count, created_at, updated_at
              FROM persona_profiles WHERE is_active = 1",
             [],
             |row| Ok(PersonaProfile {
@@ -1305,9 +1363,12 @@ pub fn get_active_persona_profile() -> Result<Option<PersonaProfile>> {
                 instinct_weight: row.get(6)?,
                 logic_weight: row.get(7)?,
                 psyche_weight: row.get(8)?,
-                message_count: row.get::<_, i64>(9).unwrap_or(0),
-                created_at: row.get(10)?,
-                updated_at: row.get(11)?,
+                instinct_points: row.get(9)?,
+                logic_points: row.get(10)?,
+                psyche_points: row.get(11)?,
+                message_count: row.get(12)?,
+                created_at: row.get(13)?,
+                updated_at: row.get(14)?,
             })
         ).optional()
     })

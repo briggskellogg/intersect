@@ -16,7 +16,7 @@ export interface AgentConfig {
 }
 
 // Message types
-export type MessageRole = 'user' | 'system' | AgentType;
+export type MessageRole = 'user' | 'system' | 'governor' | 'governor_thoughts' | AgentType;
 
 export interface Message {
   id: string;
@@ -28,6 +28,7 @@ export interface Message {
   timestamp: Date;
   isStreaming?: boolean;
   isDisco?: boolean;  // Whether this message was generated in Disco Mode
+  agentName?: string; // For governor_thoughts: which agent said this
 }
 
 // Agent response from backend
@@ -51,6 +52,8 @@ export interface SendMessageResult {
   responses: AgentResponse[];
   debate_mode: 'mild' | 'intense' | null;
   weight_change: WeightChangeNotification | null;
+  governor_thoughts: string | null;
+  governor_response: string | null;
 }
 
 // User profile (API keys and message count)
@@ -77,6 +80,9 @@ export interface PersonaProfile {
   instinctWeight: number;
   logicWeight: number;
   psycheWeight: number;
+  instinctPoints: number;  // User-allocated points (2-6, total 11)
+  logicPoints: number;
+  psychePoints: number;
   messageCount: number;
   createdAt: Date;
   updatedAt: Date;

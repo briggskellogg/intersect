@@ -1,16 +1,15 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { confirm } from '@tauri-apps/plugin-dialog';
-import { BotMessageSquare, ShieldCheck, X, Minus, Square, Mic, Sparkles } from 'lucide-react';
+import { BotMessageSquare, ShieldCheck, X, Minus, Square, Mic, Sparkles, History, ExternalLink } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import { ThinkingIndicator } from './ThinkingIndicator';
-import { ProfileSwitcher } from './ProfileSwitcher';
 import { ThemeToggle } from './ThemeToggle';
+import { ThoughtsContainer } from './ThoughtsContainer';
+import { ConversationHistory } from './ConversationHistory';
 import { useAppStore } from '../store';
 import { Message, AgentType, DebateMode } from '../types';
-import { AGENTS, DISCO_AGENTS, AGENT_ORDER, USER_PROFILES } from '../constants/agents';
+import { AGENTS, DISCO_AGENTS, AGENT_ORDER } from '../constants/agents';
 import { 
   sendMessage, 
   createConversation, 
@@ -18,34 +17,38 @@ import {
   getUserProfile,
   finalizeConversation,
   recoverConversations,
+  getConversationMessages,
+  getRecentConversations,
+  getGovernorDiscoImage,
+  getGovernorImage,
   InitResult,
+  reopenConversation,
 } from '../hooks/useTauri';
 import { useScribeTranscription } from '../hooks/useScribeTranscription';
 import { v4 as uuidv4 } from 'uuid';
-import governorIcon from '../assets/governor.png';
+import defaultGovernorIcon from '../assets/governor.png';
 import spiritAnimal from '../assets/spirit_animal.png';
 import { GovernorNotification } from './GovernorNotification';
 
 interface ChatWindowProps {
   onOpenSettings: () => void;
-  onOpenReport: () => void;
   recoveryNeeded?: InitResult | null;
   onRecoveryComplete?: () => void;
 }
 
-export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRecoveryComplete }: ChatWindowProps) {
+export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete }: ChatWindowProps) {
   const {
     messages,
     addMessage,
+    setMessages,
     clearMessages,
     currentConversation,
     setCurrentConversation,
     getActiveAgentsList,
-    getDiscoAgentsList,
     agentModes,
     toggleAgentMode,
-    toggleAllDisco,
-    hasAnyDiscoAgent,
+    toggleDiscoMode,
+    isDiscoMode,
     debateMode,
     setDebateMode,
     isLoading,
@@ -60,51 +63,40 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
     setUserProfile,
   } = useAppStore();
   
-  // Count active agents for Governor logic (on or disco = active)
-  const activeCount = Object.values(agentModes).filter(m => m !== 'off').length;
+  // Count active agents for Governor logic
+  const activeCount = Object.values(agentModes).filter(m => m === 'on').length;
   
   const { activePersonaProfile, elevenLabsApiKey, isSettingsOpen } = useAppStore();
   
-  // Get dominant trait from active persona profile
-  const dominantAgent: AgentType = activePersonaProfile?.dominantTrait || 'logic';
-  
   const [inputValue, setInputValue] = useState('');
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [governorDiscoIcon, setGovernorDiscoIcon] = useState<string | null>(null);
+  const [governorIcon, setGovernorIcon] = useState<string | null>(null);
   const [governorNotification, setGovernorNotification] = useState<{
     message: string;
     actionLabel?: string;
     onAction?: () => void;
   } | null>(null);
+
+  // Load governor icons from desktop when component mounts
+  useEffect(() => {
+    getGovernorDiscoImage().then(image => {
+      if (image) {
+        setGovernorDiscoIcon(image);
+      }
+    }).catch(err => {
+      console.error('Failed to load disco governor image:', err);
+    });
+    
+    getGovernorImage().then(image => {
+      if (image) {
+        setGovernorIcon(image);
+      }
+    }).catch(err => {
+      console.error('Failed to load governor image:', err);
+    });
+  }, []);
   
-  // Disco info tooltip state for the agent toggles section
-  const [showDiscoInfoTooltip, setShowDiscoInfoTooltip] = useState(false);
-  const [discoInfoTooltipPos, setDiscoInfoTooltipPos] = useState({ x: 0, y: 0 });
-  const discoInfoButtonRef = useRef<HTMLButtonElement>(null);
-  const discoInfoTooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  
-  const showDiscoInfoTooltipWithDelay = () => {
-    if (discoInfoTooltipTimeoutRef.current) {
-      clearTimeout(discoInfoTooltipTimeoutRef.current);
-      discoInfoTooltipTimeoutRef.current = null;
-    }
-    if (discoInfoButtonRef.current) {
-      const rect = discoInfoButtonRef.current.getBoundingClientRect();
-      setDiscoInfoTooltipPos({ x: rect.left + rect.width / 2, y: rect.bottom });
-      setShowDiscoInfoTooltip(true);
-    }
-  };
-  
-  const hideDiscoInfoTooltipWithDelay = () => {
-    discoInfoTooltipTimeoutRef.current = setTimeout(() => {
-      setShowDiscoInfoTooltip(false);
-    }, 150); // Small delay to allow moving to tooltip
-  };
-  
-  const cancelHideDiscoInfoTooltip = () => {
-    if (discoInfoTooltipTimeoutRef.current) {
-      clearTimeout(discoInfoTooltipTimeoutRef.current);
-      discoInfoTooltipTimeoutRef.current = null;
-    }
-  };
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const hasInitialized = useRef(false);
@@ -159,29 +151,75 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
       hasInitialized.current = true;
       
       try {
-        // Create a new conversation
-        const conv = await createConversation();
-        setCurrentConversation(conv);
+        // Try to load the most recent conversation
+        const recentConvs = await getRecentConversations(1);
         
-        // Dominant agent is greeting the user
-        setIsLoading(true);
-        setThinkingPhase('thinking');
-        setThinkingAgent(dominantAgent); // Dominant agent thinking
-        
-        // Get Governor greeting
-        const openerResult = await getConversationOpener();
-        
-        const openerMessage: Message = {
-          id: uuidv4(),
-          conversationId: conv.id,
-          role: openerResult.agent as Message['role'], // Dominant agent greeting
-          content: openerResult.content,
-          responseType: 'primary',
-          timestamp: new Date(),
-        };
-        addMessage(openerMessage);
-        setIsLoading(false);
-        setThinkingAgent(null);
+        if (recentConvs.length > 0) {
+          // Load the most recent conversation and reopen it
+          const conv = recentConvs[0];
+          const loadedMessages = await getConversationMessages(conv.id);
+          
+          setCurrentConversation(conv);
+          
+          // Convert agent messages to governor_thoughts format for display
+          const convertedMessages = loadedMessages.map(msg => {
+            if (msg.role === 'instinct' || msg.role === 'logic' || msg.role === 'psyche') {
+              const agentType = msg.role as AgentType;
+              const agentConfig = conv.isDisco ? DISCO_AGENTS[agentType] : AGENTS[agentType];
+              return {
+                ...msg,
+                role: 'governor_thoughts' as const,
+                agentName: agentConfig.name,
+                isDisco: conv.isDisco,
+              };
+            }
+            return msg;
+          });
+          
+          setMessages(convertedMessages);
+          
+          // Reopen with a new Governor greeting
+          setIsLoading(true);
+          setThinkingPhase('thinking');
+          setThinkingAgent('system');
+          
+          const opener = await reopenConversation(conv.id);
+          const openerMessage: Message = {
+            id: uuidv4(),
+            conversationId: conv.id,
+            role: 'governor',
+            content: opener.content,
+            responseType: 'primary',
+            timestamp: new Date(),
+          };
+          addMessage(openerMessage);
+          setIsLoading(false);
+          setThinkingAgent(null);
+        } else {
+          // No previous conversations, create a new one
+          const conv = await createConversation(false);
+          setCurrentConversation(conv);
+          
+          // Governor is greeting the user
+          setIsLoading(true);
+          setThinkingPhase('thinking');
+          setThinkingAgent('system'); // Governor thinking
+          
+          // Get Governor greeting
+          const openerResult = await getConversationOpener();
+          
+          const openerMessage: Message = {
+            id: uuidv4(),
+            conversationId: conv.id,
+            role: 'governor', // Governor greets the user
+            content: openerResult.content,
+            responseType: 'primary',
+            timestamp: new Date(),
+          };
+          addMessage(openerMessage);
+          setIsLoading(false);
+          setThinkingAgent(null);
+        }
       } catch (err) {
         console.error('Failed to init conversation:', err);
         setIsLoading(false);
@@ -269,28 +307,18 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
   // Track close handling
   const isClosingRef = useRef(false);
   
-  // Handle window close with archiving
+  // Handle window close with archiving (silent - no confirmation dialog)
   const handleWindowClose = useCallback(async () => {
     if (isClosingRef.current) return;
     
     const appWindow = getCurrentWindow();
+    isClosingRef.current = true;
     
+    // Finalize conversation silently in background (fire and forget)
     if (currentConversation && messages.length > 1) {
-      const shouldClose = await confirm(
-        "This will end your current conversation, but don't worry — it will be stored in Intersect's knowledge base.",
-        { title: 'Intersect', kind: 'info', okLabel: 'Close', cancelLabel: 'Cancel' }
-      );
-      
-      if (!shouldClose) return;
-      
-      isClosingRef.current = true;
-      
-      // Fire and forget - don't block window close
       finalizeConversation(currentConversation.id).catch(err => {
         console.error('Failed to finalize on close:', err);
       });
-    } else {
-      isClosingRef.current = true;
     }
     
     try {
@@ -333,18 +361,11 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
   useEffect(() => {
     if (recoveryNeeded && recoveryNeeded.status === 'recovery_needed' && recoveryNeeded.recoveredCount > 0) {
       const runRecovery = async () => {
-        const count = recoveryNeeded.recoveredCount;
-        setGovernorNotification({
-          message: `Recovering ${count} conversation${count > 1 ? 's' : ''} from last session...`
-        });
-        
         try {
           await recoverConversations();
-          setGovernorNotification({
-            message: `Memory updated with ${count} recovered conversation${count > 1 ? 's' : ''}.`
-          });
         } catch (err) {
           console.error('Failed to recover conversations:', err);
+          // Only show notification for technical errors
           setGovernorNotification({ message: 'Failed to recover some conversations.' });
         }
         
@@ -388,17 +409,20 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
             e.preventDefault();
             handleNewConversation(); // New conversation
             break;
+          case 'h':
+            e.preventDefault();
+            setIsHistoryOpen(prev => !prev); // Toggle conversation history
+            break;
           case 'd':
             e.preventDefault();
-            toggleAllDisco(); // Toggle all agents to/from disco mode
+            toggleDiscoMode(); // Toggle global disco mode
             break;
           case 'p':
             e.preventDefault();
             onOpenSettings(); // Open Profile modal
             break;
           case 'g':
-            e.preventDefault();
-            onOpenReport(); // Open The Governor (report)
+            // Removed - Governor report no longer exists
             break;
           case 's':
             e.preventDefault();
@@ -449,11 +473,17 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
           inputRef.current?.focus();
         }
       }
+      
+      // Escape key - close history drawer if open
+      if (e.key === 'Escape' && isHistoryOpen) {
+        e.preventDefault();
+        setIsHistoryOpen(false);
+      }
     };
     
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [onOpenReport, toggleAgentMode, toggleTranscription, isTranscribing, stopTranscription, isSettingsOpen]);
+  }, [toggleAgentMode, toggleTranscription, isTranscribing, stopTranscription, isSettingsOpen, onOpenSettings]);
 
   // Handle send message
   const handleSend = async () => {
@@ -471,7 +501,8 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
     }
     
     const activeList = getActiveAgentsList();
-    const discoList = getDiscoAgentsList();
+    // In global disco mode, all active agents are in disco
+    const discoList = isDiscoMode ? activeList : [];
     if (activeList.length === 0) {
       setError('Enable at least one agent');
       return;
@@ -499,9 +530,9 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
     setIsLoading(true);
     setError(null);
     setApiConnectionError(null); // Clear any previous connection errors on new attempt
-    // Start with Governor routing phase
-    setThinkingPhase('routing');
-    setThinkingAgent('system'); // Governor is routing
+    // Start with Governor thinking phase
+    setThinkingPhase('thinking');
+    setThinkingAgent('system'); // Governor is thinking
     
     try {
       const result = await sendMessage(currentConversation.id, content, activeList, discoList);
@@ -523,7 +554,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
         return contentLength * msPerChar + 500; // Add 500ms buffer
       };
 
-      // Show each responding agent - wait for previous to finish typing
+      // Show each agent response as Governor's internal thoughts
       for (let i = 0; i < result.responses.length; i++) {
         // Check for user interruption before processing next response
         if (shouldCancelDebate.current && i > 0) {
@@ -533,25 +564,29 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
         
         const response = result.responses[i];
         
-        // Show this agent thinking
-        setThinkingAgent(response.agent as AgentType);
+        // Show this agent thinking (as Governor's internal process)
+        setThinkingAgent('system'); // Show Governor thinking
         setThinkingPhase('thinking');
         await new Promise(r => setTimeout(r, 800)); // Brief thinking animation
         
         // Clear thinking indicator before message appears
         setThinkingAgent(null);
         
-        const agentMessage: Message = {
+        // Display agent response as Governor's thought with agent name
+        const agentConfig = isDiscoMode ? DISCO_AGENTS : AGENTS;
+        const agentInfo = agentConfig[response.agent as AgentType];
+        const governorThoughtMessage: Message = {
           id: uuidv4(),
           conversationId: currentConversation.id,
-          role: response.agent as AgentType,
+          role: 'governor_thoughts',
           content: response.content,
           responseType: response.response_type as Message['responseType'],
           referencesMessageId: response.references_message_id || undefined,
           timestamp: new Date(),
-          isDisco: discoList.includes(response.agent as AgentType), // Per-agent disco mode
+          agentName: agentInfo?.name || response.agent,
+          isDisco: isDiscoMode,
         };
-        addMessage(agentMessage);
+        addMessage(governorThoughtMessage);
         
         // If there's another response after this, wait for typing to complete
         if (i < result.responses.length - 1) {
@@ -566,10 +601,26 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
         }
       }
       
-      // Show weight change notification from Governor as toast
-      if (result.weight_change) {
-        setGovernorNotification({ message: result.weight_change.message });
+      // After all agent thoughts are shown, display Governor's synthesized response
+      if (result.governor_response) {
+        // Brief pause to transition from thoughts to response
+        setThinkingAgent('system');
+        setThinkingPhase('thinking');
+        await new Promise(r => setTimeout(r, 1000));
+        
+        setThinkingAgent(null);
+        
+        const governorResponseMessage: Message = {
+          id: uuidv4(),
+          conversationId: currentConversation.id,
+          role: 'governor',
+          content: result.governor_response,
+          timestamp: new Date(),
+        };
+        addMessage(governorResponseMessage);
       }
+      
+      // Weight change notifications removed - only show technical errors
       
       // Refresh user profile to update weights and message count in UI
       try {
@@ -632,7 +683,8 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
     if (!currentConversation) return;
     
     const activeList = getActiveAgentsList();
-    const discoList = getDiscoAgentsList();
+    // In global disco mode, all active agents are in disco
+    const discoList = isDiscoMode ? activeList : [];
     if (activeList.length === 0) return;
     
     // Reset cancel flag
@@ -652,7 +704,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
     
     setIsLoading(true);
     setError(null);
-    setThinkingPhase('routing');
+    setThinkingPhase('thinking');
     setThinkingAgent('system');
     
     try {
@@ -672,37 +724,69 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
         return contentLength * msPerChar + 500;
       };
       
+      // Show each agent response as Governor's internal thoughts
       for (let i = 0; i < result.responses.length; i++) {
         if (shouldCancelDebate.current && i > 0) break;
         
         const response = result.responses[i];
-        setThinkingAgent(response.agent as AgentType);
+        
+        // Show this agent thinking (as Governor's internal process)
+        setThinkingAgent('system'); // Show Governor thinking
         setThinkingPhase('thinking');
-        await new Promise(r => setTimeout(r, 800));
+        await new Promise(r => setTimeout(r, 800)); // Brief thinking animation
+        
+        // Clear thinking indicator before message appears
         setThinkingAgent(null);
         
-        const agentMessage: Message = {
+        // Display agent response as Governor's thought with agent name
+        const agentConfig = isDiscoMode ? DISCO_AGENTS : AGENTS;
+        const agentInfo = agentConfig[response.agent as AgentType];
+        const governorThoughtMessage: Message = {
           id: uuidv4(),
           conversationId: currentConversation.id,
-          role: response.agent as AgentType,
+          role: 'governor_thoughts',
           content: response.content,
           responseType: response.response_type as Message['responseType'],
           referencesMessageId: response.references_message_id || undefined,
           timestamp: new Date(),
-          isDisco: discoList.includes(response.agent as AgentType), // Per-agent disco mode
+          agentName: agentInfo?.name || response.agent,
+          isDisco: isDiscoMode,
         };
-        addMessage(agentMessage);
+        addMessage(governorThoughtMessage);
         
+        // If there's another response after this, wait for typing to complete
         if (i < result.responses.length - 1) {
           const typingTime = getTypingDuration(response.agent, response.content.length);
           await new Promise(r => setTimeout(r, typingTime));
-          if (shouldCancelDebate.current) break;
+          
+          // Check again after typing completes
+          if (shouldCancelDebate.current) {
+            console.log('[INTERRUPT] User interrupted after agent finished typing');
+            break;
+          }
         }
       }
       
-      if (result.weight_change) {
-        setGovernorNotification({ message: result.weight_change.message });
+      // After all agent thoughts are shown, display Governor's synthesized response
+      if (result.governor_response) {
+        // Brief pause to transition from thoughts to response
+        setThinkingAgent('system');
+        setThinkingPhase('thinking');
+        await new Promise(r => setTimeout(r, 1000));
+        
+        setThinkingAgent(null);
+        
+        const governorResponseMessage: Message = {
+          id: uuidv4(),
+          conversationId: currentConversation.id,
+          role: 'governor',
+          content: result.governor_response,
+          timestamp: new Date(),
+        };
+        addMessage(governorResponseMessage);
       }
+      
+      // Weight change notifications removed - only show technical errors
 
       try {
         const updatedProfile = await getUserProfile();
@@ -743,13 +827,13 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
     
     // Finalize the previous conversation before starting a new one
     if (currentConversation && messages.length > 1) {
-      setGovernorNotification({ message: "Sorting this conversation into long-term memory..." });
       // Fire and forget - don't block the UI
       finalizeConversation(currentConversation.id).catch(err => 
         console.error('Failed to finalize conversation:', err)
       );
     }
     
+    setIsLoading(true);
     clearMessages();
     setCurrentConversation(null);
     setDebateMode(null);
@@ -759,24 +843,19 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
       const conv = await createConversation(false);
       setCurrentConversation(conv);
       
-      // Dominant agent is greeting the user
-      setIsLoading(true);
+      // Governor is greeting the user
       setThinkingPhase('thinking');
-      setThinkingAgent(dominantAgent); // Dominant agent thinking
+      setThinkingAgent('system'); // Governor thinking
       
-      // Get dominant agent greeting
+      // Get Governor greeting
       const openerResult = await getConversationOpener();
-      
-      // Check if dominant agent is in disco mode for the opener message
-      const isDominantDisco = agentModes[dominantAgent] === 'disco';
       
       const openerMessage: Message = {
         id: uuidv4(),
         conversationId: conv.id,
-        role: openerResult.agent as Message['role'], // Dominant agent greeting
+        role: 'governor', // Governor greets the user
         content: openerResult.content,
         responseType: 'primary',
-        isDisco: isDominantDisco, // Mark message as disco if agent is in disco mode
         timestamp: new Date(),
       };
       addMessage(openerMessage);
@@ -784,8 +863,143 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
       setThinkingAgent(null);
     } catch (err) {
       console.error('Failed to create new conversation:', err);
+      setError(err instanceof Error ? err.message : 'Failed to create new conversation');
       setIsLoading(false);
       setThinkingAgent(null);
+      hasInitialized.current = false; // Allow retry on error
+    }
+  };
+
+  // Handle loading a conversation from history (always reopens with new greeting)
+  const handleLoadConversation = async (conversationId: string) => {
+    // Finalize the previous conversation before loading a new one
+    if (currentConversation && messages.length > 1) {
+      finalizeConversation(currentConversation.id).catch(err => 
+        console.error('Failed to finalize conversation:', err)
+      );
+    }
+    
+    setIsLoading(true);
+    clearMessages();
+    setDebateMode(null);
+    setThinkingPhase('thinking');
+    setThinkingAgent('system'); // Governor thinking
+    
+    try {
+      // Load conversation messages
+      const loadedMessages = await getConversationMessages(conversationId);
+      
+      // Find the conversation info
+      const convs = await getRecentConversations(100);
+      const conv = convs.find(c => c.id === conversationId);
+      
+      if (conv) {
+        setCurrentConversation(conv);
+        
+        // Convert agent messages to governor_thoughts format for display
+        const convertedMessages = loadedMessages.map(msg => {
+          // If message role is an agent type, convert to governor_thoughts
+          if (msg.role === 'instinct' || msg.role === 'logic' || msg.role === 'psyche') {
+            const agentType = msg.role as AgentType;
+            const agentConfig = conv.isDisco ? DISCO_AGENTS[agentType] : AGENTS[agentType];
+            return {
+              ...msg,
+              role: 'governor_thoughts' as const,
+              agentName: agentConfig.name,
+              isDisco: conv.isDisco,
+            };
+          }
+          return msg;
+        });
+        
+        setMessages(convertedMessages);
+        
+        // Always reopen with a new Governor greeting
+        const opener = await reopenConversation(conversationId);
+        const openerMessage: Message = {
+          id: uuidv4(),
+          conversationId: conv.id,
+          role: 'governor',
+          content: opener.content,
+          responseType: 'primary',
+          timestamp: new Date(),
+        };
+        addMessage(openerMessage);
+      } else {
+        // If conversation not found, create a new one
+        const newConv = await createConversation(false);
+        setCurrentConversation(newConv);
+      }
+    } catch (err) {
+      console.error('Failed to load conversation:', err);
+      setError('Failed to load conversation');
+    } finally {
+      setIsLoading(false);
+      setThinkingAgent(null);
+    }
+  };
+
+  // Handle reopening a conversation (with Governor greeting) - no animations
+  const handleReopenConversation = async (conversationId: string) => {
+    // Finalize the previous conversation before reopening
+    if (currentConversation && messages.length > 1) {
+      finalizeConversation(currentConversation.id).catch(err => 
+        console.error('Failed to finalize conversation:', err)
+      );
+    }
+    
+    clearMessages();
+    setDebateMode(null);
+    
+    try {
+      // Load conversation messages
+      const loadedMessages = await getConversationMessages(conversationId);
+      
+      // Find the conversation info
+      const convs = await getRecentConversations(100);
+      const conv = convs.find(c => c.id === conversationId);
+      
+      if (conv) {
+        setCurrentConversation(conv);
+        
+        // Convert agent messages to governor_thoughts format for display
+        const convertedMessages = loadedMessages.map(msg => {
+          if (msg.role === 'instinct' || msg.role === 'logic' || msg.role === 'psyche') {
+            const agentType = msg.role as AgentType;
+            const agentConfig = conv.isDisco ? DISCO_AGENTS[agentType] : AGENTS[agentType];
+            return {
+              ...msg,
+              role: 'governor_thoughts' as const,
+              agentName: agentConfig.name,
+              isDisco: conv.isDisco,
+            };
+          }
+          return msg;
+        });
+        
+        setMessages(convertedMessages);
+        
+        // Get the Governor's reopening greeting
+        const opener = await reopenConversation(conversationId);
+        
+        // Add the Governor's reopening greeting (no animation)
+        const openerMessage: Message = {
+          id: uuidv4(),
+          conversationId: conv.id,
+          role: 'governor',
+          content: opener.content,
+          responseType: 'primary',
+          timestamp: new Date(),
+        };
+        addMessage(openerMessage);
+      } else {
+        // If conversation not found, create a new one
+        const newConv = await createConversation(false);
+        setCurrentConversation(newConv);
+      }
+    } catch (err) {
+      console.error('Failed to reopen conversation:', err);
+      setError('Failed to reopen conversation');
     }
   };
 
@@ -829,70 +1043,6 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
         onAction={governorNotification?.onAction}
       />
       
-      {/* Disco info tooltip - rendered via portal to bypass overflow:hidden on app-container */}
-      {showDiscoInfoTooltip && createPortal(
-        <div 
-          className="fixed z-[9999]"
-          style={{ 
-            left: discoInfoTooltipPos.x, 
-            top: discoInfoTooltipPos.y,
-            transform: 'translateX(-50%)'
-          }}
-          onMouseEnter={cancelHideDiscoInfoTooltip}
-          onMouseLeave={hideDiscoInfoTooltipWithDelay}
-        >
-          {/* Invisible bridge to connect button to tooltip */}
-          <div className="h-2 w-full" />
-          <div 
-            className="w-[200px] px-3 py-3 bg-obsidian/95 backdrop-blur-sm border border-amber-500/50 rounded-xl shadow-2xl"
-            style={{ boxShadow: '0 0 20px rgba(234, 179, 8, 0.15)' }}
-          >
-            {/* Header */}
-            <div className="flex items-center gap-2 mb-3">
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" strokeWidth={2} />
-              <h4 className="text-xs font-sans font-semibold text-amber-400">Disco Mode</h4>
-            </div>
-            
-            {/* Tips as separate cards */}
-            <div className="space-y-2">
-              <div className="px-2 py-1.5 bg-smoke/20 rounded-lg border border-smoke/20">
-                <div className="flex items-center gap-1.5 text-[10px] font-mono">
-                  <span className="text-ash/50">Click:</span>
-                  <span className="text-emerald-400">On</span>
-                  <span className="text-ash/30">→</span>
-                  <span className="text-amber-400">Disco</span>
-                  <span className="text-ash/30">→</span>
-                  <span className="text-ash/40">Off</span>
-                </div>
-              </div>
-              <div className="px-2 py-1.5 bg-smoke/20 rounded-lg border border-smoke/20 flex items-center gap-2">
-                <kbd className="px-1.5 py-0.5 bg-amber-500/20 rounded text-amber-400 text-[9px] border border-amber-500/30 font-mono">⌘D</kbd>
-                <span className="text-[10px] text-ash/50 font-mono">toggles all</span>
-              </div>
-            </div>
-            
-            {/* Description */}
-            <p className="mt-3 text-[10px] text-ash/50 font-mono leading-relaxed">
-              Intense, opinionated, challenging.
-            </p>
-            
-            {/* Link */}
-            <a 
-              href="https://discoelysium.com" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 mt-2 pt-2 border-t border-smoke/20 text-[9px] text-ash/40 hover:text-amber-400 transition-colors font-mono"
-            >
-              <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" />
-              </svg>
-              Inspired by Disco Elysium
-            </a>
-          </div>
-        </div>,
-        document.body
-      )}
-      
       {/* Header - Clean, centered logo with space for macOS window controls */}
       <header 
         className="relative flex items-center justify-between px-4 py-2 border-b border-smoke/30 bg-obsidian/80 backdrop-blur-md cursor-default"
@@ -907,7 +1057,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
         }}
       >
         {/* Left controls - Window buttons + New Chat + Agents */}
-        <div className="flex items-center gap-4 relative z-20">
+        <div className="flex items-center gap-2 relative z-20">
           {/* Custom window controls - always visible */}
           <div className="flex items-center gap-1.5">
             <button
@@ -936,6 +1086,16 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
             </button>
           </div>
 
+          {/* Conversation history button */}
+          <button
+            onClick={() => setIsHistoryOpen(true)}
+            className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-ash/60 hover:text-pearl hover:bg-smoke/20 transition-all cursor-pointer"
+            title="Conversation history (⌘H)"
+          >
+            <History className="w-4 h-4" strokeWidth={1.5} />
+            <kbd className="text-[8px] font-mono text-ash/40">⌘H</kbd>
+          </button>
+          
           {/* New conversation button */}
           <button
             onClick={() => handleNewConversation()}
@@ -946,14 +1106,12 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
             <kbd className="text-[8px] font-mono text-ash/40">⌘N</kbd>
           </button>
           
-          {/* Agent toggles - in a pill container */}
+          {/* Agent toggles - in a pill container (simple on/off) */}
           <div className="flex items-center gap-1.5 bg-charcoal/60 rounded-full px-2 py-1.5 border border-smoke/30">
             {AGENT_ORDER.map((agentId, index) => {
-              // Use disco agents config if agent is in disco mode
-              const mode = agentModes[agentId];
-              const isAgentInDisco = mode === 'disco';
-              const agentConfig = isAgentInDisco ? DISCO_AGENTS[agentId] : AGENTS[agentId];
-              const isActive = mode !== 'off';
+              // Use disco agents config if global disco mode is on
+              const agentConfig = isDiscoMode ? DISCO_AGENTS[agentId] : AGENTS[agentId];
+              const isActive = agentModes[agentId] === 'on';
               const hotkeyNum = index + 1;
               
               return (
@@ -967,19 +1125,8 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
                     } cursor-pointer`}
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.9 }}
-                    title={`Toggle ${agentConfig.name}: ${mode} (⌘${hotkeyNum})`}
+                    title={`Toggle ${agentConfig.name}: ${isActive ? 'On' : 'Off'} (⌘${hotkeyNum})`}
                   >
-                    {/* Disco mode glow ring */}
-                    {isAgentInDisco && (
-                      <motion.div
-                        className="absolute inset-[-2px] rounded-full"
-                        style={{ 
-                          border: '1.5px solid #EAB308',
-                        }}
-                        animate={{ opacity: [0.5, 1, 0.5] }}
-                        transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
-                      />
-                    )}
                     <div className="w-full h-full rounded-full overflow-hidden">
                       <img 
                         src={agentConfig.avatar} 
@@ -991,7 +1138,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
                     {isActive && (
                       <motion.div
                         className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-charcoal z-10"
-                        style={{ backgroundColor: isAgentInDisco ? '#EAB308' : '#22C55E' }}
+                        style={{ backgroundColor: '#22C55E' }}
                         animate={{ opacity: [0.7, 1, 0.7] }}
                         transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
                       />
@@ -1014,14 +1161,12 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
                       <span className="text-[9px] text-ash/50 font-mono uppercase">{agentId}</span>
                       <span 
                         className={`text-[8px] px-1.5 py-0.5 rounded-full font-mono uppercase ${
-                          isAgentInDisco 
-                            ? 'bg-amber-500/20 text-amber-400'
-                            : isActive 
-                              ? 'bg-emerald-500/20 text-emerald-400'
-                              : 'bg-smoke/30 text-ash/50'
+                          isActive 
+                            ? 'bg-emerald-500/20 text-emerald-400'
+                            : 'bg-smoke/30 text-ash/50'
                         }`}
                       >
-                        {isAgentInDisco ? 'Disco' : isActive ? 'On' : 'Off'}
+                        {isActive ? 'On' : 'Off'}
                       </span>
                     </div>
                     <p className="text-[10px] text-ash/80 font-mono leading-relaxed">
@@ -1031,40 +1176,6 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
                 </div>
               );
             })}
-            
-            {/* Dynamic Disco pill - shows off/partial/full states */}
-            {(() => {
-              const discoCount = getDiscoAgentsList().length;
-              const isOff = discoCount === 0;
-              const isPartial = discoCount > 0 && discoCount < 3;
-              const isFull = discoCount === 3;
-              
-              return (
-                <motion.button
-                  ref={discoInfoButtonRef}
-                  onMouseEnter={showDiscoInfoTooltipWithDelay}
-                  onMouseLeave={hideDiscoInfoTooltipWithDelay}
-                  onClick={() => toggleAllDisco()}
-                  className={`ml-2 flex items-center gap-1 px-2 py-0.5 rounded-full transition-all cursor-pointer group ${
-                    isOff 
-                      ? 'bg-smoke/20 border border-smoke/40 text-ash/60 hover:bg-smoke/30 hover:text-ash' 
-                      : isPartial
-                        ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-dashed border-amber-500/60 text-amber-400 hover:from-amber-500/30 hover:to-orange-500/30'
-                        : 'bg-gradient-to-r from-amber-500/25 to-orange-500/25 border border-amber-400/70 text-amber-300 hover:from-amber-500/35 hover:to-orange-500/35'
-                  }`}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  animate={isFull ? { 
-                    boxShadow: ['0 0 0px rgba(234, 179, 8, 0)', '0 0 10px rgba(234, 179, 8, 0.4)', '0 0 0px rgba(234, 179, 8, 0)']
-                  } : undefined}
-                  transition={isFull ? { duration: 2, repeat: Infinity, ease: 'easeInOut' } : undefined}
-                >
-                  <Sparkles className={`w-3 h-3 ${isFull ? 'animate-pulse' : ''}`} strokeWidth={2} />
-                  <span className="text-[9px] font-mono font-medium tracking-wide">DISCO</span>
-                  {isPartial && <span className="text-[8px] opacity-70">({discoCount}/3)</span>}
-                </motion.button>
-              );
-            })()}
           </div>
           
         </div>
@@ -1081,17 +1192,64 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
         </div>
 
         {/* Right controls */}
-        <div className="flex items-center gap-3 justify-end relative z-10">
-          {/* Profile Switcher - opens profile modal */}
-          <ProfileSwitcher onOpenProfileModal={onOpenSettings} />
+        <div className="flex items-center gap-[4px] justify-end relative z-10">
+          {/* Disco mode toggle - next to governor */}
+          <div className="relative group/disco">
+            <motion.button
+              onClick={() => toggleDiscoMode()}
+              className={`flex items-center gap-1 px-2 py-1 rounded-full transition-all cursor-pointer ${
+                isDiscoMode
+                  ? 'bg-gradient-to-r from-amber-500/25 to-orange-500/25 border border-amber-400/70 text-amber-300 hover:from-amber-500/35 hover:to-orange-500/35'
+                  : 'bg-smoke/20 border border-smoke/40 text-ash/60 hover:bg-smoke/30 hover:text-ash'
+              }`}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              animate={isDiscoMode ? { 
+                boxShadow: ['0 0 0px rgba(234, 179, 8, 0)', '0 0 10px rgba(234, 179, 8, 0.4)', '0 0 0px rgba(234, 179, 8, 0)']
+              } : undefined}
+              transition={isDiscoMode ? { duration: 2, repeat: Infinity, ease: 'easeInOut' } : undefined}
+            >
+              <Sparkles className={`w-3 h-3 ${isDiscoMode ? 'animate-pulse' : ''}`} strokeWidth={2} />
+              <span className="text-[9px] font-mono font-medium tracking-wide">DISCO</span>
+              <kbd className={`px-1 py-0.5 rounded text-[8px] font-mono leading-none border ${
+                isDiscoMode
+                  ? 'bg-amber-500/20 border-amber-400/50 text-amber-300'
+                  : 'bg-smoke/30 border-smoke/40 text-ash/60'
+              }`}>⌘D</kbd>
+            </motion.button>
+            
+            {/* Hover tooltip */}
+            <div 
+              className="absolute top-full mt-2 right-0 px-3 py-2 bg-obsidian/95 border rounded-lg opacity-0 invisible group-hover/disco:opacity-100 group-hover/disco:visible transition-all shadow-xl w-[260px] z-50 pointer-events-auto"
+              style={{ borderColor: 'rgba(234, 179, 8, 0.4)' }}
+            >
+              <div className="flex items-center gap-2 mb-1.5">
+                <Sparkles className="w-3 h-3 text-amber-400" strokeWidth={2} />
+                <span className="text-xs font-sans font-medium text-amber-300">DISCO MODE</span>
+                <kbd className="px-1.5 py-0.5 bg-smoke/30 rounded border border-smoke/40 text-[8px] font-mono text-ash/60">⌘D</kbd>
+              </div>
+              <p className="text-[10px] text-ash/80 font-mono leading-relaxed mb-1.5">
+                In <strong>Normal Mode</strong>, agents are helpful and supportive. In <strong>Disco Mode</strong>, all agents become challenging and push back. They'll question your assumptions, call out blind spots, and engage in spirited debate.
+              </p>
+              <a
+                href="https://www.discoelysium.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-[9px] text-amber-400/80 hover:text-amber-300 font-mono italic transition-colors cursor-pointer"
+              >
+                <span>Inspired by Disco Elysium</span>
+                <ExternalLink className="w-2.5 h-2.5" strokeWidth={1.5} />
+              </a>
+            </div>
+          </div>
           
-          {/* Governor - opens report modal */}
+          {/* Governor - opens settings */}
           <button
-            onClick={onOpenReport}
+            onClick={onOpenSettings}
             className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-smoke/20 transition-all cursor-pointer group/governor"
-            title="The Governor (⌘G)"
+            title="Settings (⌘P)"
           >
-            {/* Governor icon - round with flashing yellow border when routing */}
+            {/* Governor icon */}
             <div className="relative w-6 h-6">
               {/* Animated border ring - only this pulses */}
               {activeCount > 1 && (
@@ -1109,12 +1267,16 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
                   className="absolute inset-[-2px] rounded-full border border-ash/30"
                 />
               )}
-              {/* Icon container */}
+              {/* Icon container - use disco icon if in disco mode */}
               <div className="w-6 h-6 rounded-full overflow-hidden">
-                <img src={governorIcon} alt="Governor" className="w-full h-full object-cover" />
+                <img 
+                  src={isDiscoMode && governorDiscoIcon ? governorDiscoIcon : (governorIcon || defaultGovernorIcon)} 
+                  alt="Governor" 
+                  className="w-full h-full object-cover" 
+                />
               </div>
             </div>
-            <kbd className="p-1 bg-smoke/30 rounded text-[10px] font-mono text-ash/60 border border-smoke/40 leading-none aspect-square flex items-center justify-center">⌘G</kbd>
+            <kbd className="p-1 bg-smoke/30 rounded text-[10px] font-mono text-ash/60 border border-smoke/40 leading-none aspect-square flex items-center justify-center">⌘P</kbd>
           </button>
           
           {/* Theme toggle */}
@@ -1142,23 +1304,64 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
           </div>
         )}
 
-        {messages.map((message, index) => (
-          <MessageBubble
-            key={message.id}
-            message={message}
-            isLatest={index === messages.length - 1}
-          />
-        ))}
+        {messages.map((message, index) => {
+          // Group consecutive governor_thoughts messages
+          const isThought = message.role === 'governor_thoughts';
+          const prevMessage = index > 0 ? messages[index - 1] : null;
+          const isFirstThought = isThought && (prevMessage?.role !== 'governor_thoughts');
+          
+          // Collect all thoughts in this group
+          if (isFirstThought) {
+            const thoughtGroup: Message[] = [];
+            for (let i = index; i < messages.length; i++) {
+              if (messages[i].role === 'governor_thoughts') {
+                thoughtGroup.push(messages[i]);
+              } else {
+                break;
+              }
+            }
+            
+            return (
+              <ThoughtsContainer key={`thoughts-${message.id}`} thoughts={thoughtGroup} />
+            );
+          }
+          
+          // Skip other thoughts in the group (they're rendered in ThoughtsContainer)
+          if (isThought && !isFirstThought) {
+            return null;
+          }
+          
+          // Render normal messages
+          return (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              isLatest={index === messages.length - 1}
+              governorDiscoIcon={governorDiscoIcon}
+              governorIcon={governorIcon}
+              isDiscoMode={isDiscoMode}
+            />
+          );
+        })}
 
         {/* Thinking indicator */}
         <AnimatePresence>
           {isLoading && (
-            <ThinkingIndicator agent={thinkingAgent} phase={thinkingPhase} isDisco={hasAnyDiscoAgent()} />
+            <ThinkingIndicator agent={thinkingAgent} phase={thinkingPhase} isDisco={isDiscoMode} />
           )}
         </AnimatePresence>
 
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Conversation History Drawer */}
+      <ConversationHistory
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        currentConversationId={currentConversation?.id || null}
+        onSelectConversation={handleLoadConversation}
+        onReopenConversation={handleReopenConversation}
+      />
 
       {/* Floating Input */}
       <div className="absolute bottom-3 left-1/2 -translate-x-1/2 w-3/4 max-w-5xl">
@@ -1211,7 +1414,7 @@ export function ChatWindow({ onOpenSettings, onOpenReport, recoveryNeeded, onRec
                   }}
                 />
                 <img 
-                  src={USER_PROFILES[dominantAgent]} 
+                  src={isDiscoMode && governorDiscoIcon ? governorDiscoIcon : (governorIcon || defaultGovernorIcon)} 
                   alt="You"
                   className="w-7 h-7 rounded-full relative z-10"
                 />

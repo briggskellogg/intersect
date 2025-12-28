@@ -208,14 +208,13 @@ export function ApiKeyModal({ isOpen, onComplete, initialOpenAiKey, initialAnthr
                 </button>
               )}
               
-              <div className="flex items-center justify-center gap-2 mb-2">
+              <div className="flex items-center justify-center gap-2">
                 <img src={governorIcon} alt="" className="w-7 h-7 opacity-80" />
                 <h1 className="font-logo text-2xl font-bold text-white">
                   Intersect
                 </h1>
                 <span className="text-[10px] font-mono text-ash/50 ml-1.5">v1</span>
               </div>
-              <p className="text-ash font-mono text-xs">Configure your AI connections</p>
             </div>
 
             <div className="p-6 space-y-5">

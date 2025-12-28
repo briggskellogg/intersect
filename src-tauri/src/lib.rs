@@ -8,17 +8,61 @@ mod openai;
 mod orchestrator;
 
 use db::{Message, UserProfile, UserContext};
-use memory::{MemoryExtractor, ConversationSummarizer};
-use orchestrator::{Orchestrator, Agent, ResponseType, AgentResponse, evolve_weights, InteractionType, EngagementAnalyzer, IntrinsicTraitAnalyzer, combine_trait_analyses, decide_response_heuristic, decide_grounding_heuristic};
+use memory::{MemoryExtractor, ConversationSummarizer, UserProfileSummary};
+use orchestrator::{Orchestrator, Agent, ResponseType, AgentResponse, EngagementAnalyzer, IntrinsicTraitAnalyzer, combine_trait_analyses, decide_response_heuristic, decide_grounding_heuristic};
 use serde::{Deserialize, Serialize};
 use chrono::Utc;
 use uuid::Uuid;
+use std::collections::HashMap;
+use std::sync::Mutex;
+use once_cell::sync::Lazy;
+
+// ============ Session Weight Storage ============
+// Session weights track short-term boosts that decay over conversation
+// Stored in memory, keyed by conversation_id
+static SESSION_WEIGHTS: Lazy<Mutex<HashMap<String, (f64, f64, f64)>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// Get or initialize session weights for a conversation
+/// Returns (instinct_session, logic_session, psyche_session)
+fn get_or_init_session_weights(conversation_id: &str) -> (f64, f64, f64) {
+    let mut weights = SESSION_WEIGHTS.lock().unwrap();
+    *weights.entry(conversation_id.to_string())
+        .or_insert((0.0, 0.0, 0.0))
+}
+
+/// Decay all session weights by 10% (multiply by 0.9)
+fn decay_session_weights(conversation_id: &str) {
+    let mut weights = SESSION_WEIGHTS.lock().unwrap();
+    if let Some((instinct, logic, psyche)) = weights.get_mut(conversation_id) {
+        *instinct *= 0.9;
+        *logic *= 0.9;
+        *psyche *= 0.9;
+    }
+}
+
+/// Add boost to session weight for selected agent
+fn boost_session_weight(conversation_id: &str, agent: Agent, boost: f64) {
+    let mut weights = SESSION_WEIGHTS.lock().unwrap();
+    let session = weights.entry(conversation_id.to_string()).or_insert((0.0, 0.0, 0.0));
+    match agent {
+        Agent::Instinct => session.0 += boost,
+        Agent::Logic => session.1 += boost,
+        Agent::Psyche => session.2 += boost,
+    }
+}
+
+/// Clear session weights for a conversation (when conversation ends)
+fn clear_session_weights(conversation_id: &str) {
+    let mut weights = SESSION_WEIGHTS.lock().unwrap();
+    weights.remove(conversation_id);
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SendMessageResult {
     pub responses: Vec<AgentResponse>,
     pub debate_mode: Option<String>, // "mild" | "intense" | null
     pub weight_change: Option<WeightChangeNotification>,
+    pub governor_response: Option<String>, // Governor's synthesized response after reading agent thoughts
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -108,6 +152,9 @@ async fn recover_conversations() -> Result<usize, String> {
 
 /// Internal finalization logic (shared between normal finalize and recovery)
 async fn finalize_conversation_internal(conversation_id: &str) -> Result<(), String> {
+    // Clear session weights when conversation ends
+    clear_session_weights(conversation_id);
+    
     let profile = db::get_user_profile().map_err(|e| e.to_string())?;
     let anthropic_key = match profile.anthropic_key {
         Some(key) => key,
@@ -339,14 +386,13 @@ async fn get_conversation_opener() -> Result<ConversationOpenerResult, String> {
     let profile = db::get_user_profile().map_err(|e| e.to_string())?;
     let anthropic_key = profile.anthropic_key.ok_or("Anthropic API key not set")?;
     
-    let recent = db::get_recent_conversations(5).map_err(|e| e.to_string())?;
-    
     // Get active persona profile to inform the greeting
     let active_profile = db::get_active_persona_profile().map_err(|e| e.to_string())?;
     let active_trait = active_profile.map(|p| p.dominant_trait).unwrap_or_else(|| "logic".to_string());
     
     // The dominant agent greets the user (using Anthropic/Claude)
-    let content = generate_governor_greeting(&anthropic_key, &recent, &active_trait)
+    // No past conversation context - each new conversation starts fresh
+    let content = generate_governor_greeting(&anthropic_key, &active_trait)
         .await
         .map_err(|e| e.to_string())?;
     
@@ -354,158 +400,42 @@ async fn get_conversation_opener() -> Result<ConversationOpenerResult, String> {
     Ok(ConversationOpenerResult { agent: active_trait.clone(), content })
 }
 
-// ============ Temporal Context for Greetings ============
-
-struct TemporalContext {
-    time_since_last: String,      // "just_now", "short_break", "hours_ago", "same_day", "new_day", "days_ago"
-    minutes_elapsed: i64,
-    time_of_day: String,          // "early_morning", "morning", "afternoon", "evening", "late_night"
-    hour: u32,
-}
-
-fn calculate_temporal_context(last_updated: Option<&str>) -> TemporalContext {
-    use chrono::{DateTime, Local, Timelike};
+/// Generate a brief Governor greeting for a new conversation using knowledge base
+/// Each new conversation starts with a fresh context window - no past conversation references
+async fn generate_governor_greeting(anthropic_key: &str, active_trait: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    use crate::anthropic::{AnthropicClient, AnthropicMessage, ThinkingBudget, CLAUDE_HAIKU};
+    use chrono::{Local, Timelike};
     
+    // ===== CURRENT TIME OF DAY (not relative to past conversations) =====
     let now = Local::now();
     let hour = now.hour();
-    
-    // Determine time of day
     let time_of_day = match hour {
         5..=8 => "early_morning",
         9..=11 => "morning",
         12..=16 => "afternoon",
         17..=20 => "evening",
         _ => "late_night", // 21-4
-    }.to_string();
-    
-    // If no previous conversation, treat as first time
-    let Some(last_str) = last_updated else {
-        return TemporalContext {
-            time_since_last: "first_time".to_string(),
-            minutes_elapsed: -1,
-            time_of_day,
-            hour,
-        };
     };
     
-    // Parse last updated timestamp
-    let last_time = match DateTime::parse_from_rfc3339(last_str) {
-        Ok(dt) => dt.with_timezone(&Local),
-        Err(_) => {
-            return TemporalContext {
-                time_since_last: "unknown".to_string(),
-                minutes_elapsed: -1,
-                time_of_day,
-                hour,
-            };
-        }
-    };
-    
-    let duration = now.signed_duration_since(last_time);
-    let minutes_elapsed = duration.num_minutes();
-    
-    // Check if it's a new calendar day
-    let is_new_calendar_day = now.date_naive() != last_time.date_naive();
-    
-    // Determine time since last category
-    let time_since_last = if minutes_elapsed < 5 {
-        "just_now"
-    } else if minutes_elapsed < 60 {
-        "short_break"
-    } else if minutes_elapsed < 240 { // < 4 hours
-        "hours_ago"
-    } else if !is_new_calendar_day {
-        "same_day"
-    } else if minutes_elapsed < 1440 { // < 24 hours but new day
-        "new_day"
-    } else if minutes_elapsed < 4320 { // < 3 days
-        "days_ago"
-    } else {
-        "extended_absence"
-    }.to_string();
-    
-    TemporalContext {
-        time_since_last,
-        minutes_elapsed,
-        time_of_day,
-        hour,
-    }
-}
-
-/// Generate a brief Governor greeting for a new conversation using knowledge base
-async fn generate_governor_greeting(anthropic_key: &str, recent_conversations: &[db::Conversation], active_trait: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    use crate::anthropic::{AnthropicClient, AnthropicMessage, ThinkingBudget, CLAUDE_HAIKU};
-    
-    // ===== TEMPORAL CONTEXT =====
-    let last_updated = recent_conversations.first().map(|c| c.updated_at.as_str());
-    let temporal = calculate_temporal_context(last_updated);
-    
-    // ===== LAST CONVERSATION SUMMARY (for resolution state) =====
-    let last_summary = if let Some(last_conv) = recent_conversations.first() {
-        db::get_conversation_summary(&last_conv.id).unwrap_or(None)
-    } else {
-        None
-    };
-    
-    // ===== GATHER USER CONTEXT =====
+    // ===== GATHER USER CONTEXT (learned knowledge, not conversation-specific) =====
     let user_facts = db::get_all_user_facts().unwrap_or_default();
     let user_patterns = db::get_all_user_patterns().unwrap_or_default();
     
-    // Build comprehensive context
+    // Build context for greeting
     let mut context_parts = Vec::new();
     
-    // 1. TEMPORAL SITUATION
-    let temporal_desc = match temporal.time_since_last.as_str() {
-        "just_now" => format!("TIMING: User JUST finished a conversation (< 5 min ago). They're back immediately -- something else on their mind or continuing a thread."),
-        "short_break" => format!("TIMING: User took a short break ({} minutes). They're picking up the session.", temporal.minutes_elapsed),
-        "hours_ago" => format!("TIMING: It's been {} hours since they last chatted. Same day, fresh energy.", temporal.minutes_elapsed / 60),
-        "same_day" => format!("TIMING: They chatted earlier today but it's been a while ({}+ hours). Checking back in.", temporal.minutes_elapsed / 60),
-        "new_day" => "TIMING: This is a NEW DAY since their last conversation. Fresh start, new day greeting appropriate.".to_string(),
-        "days_ago" => format!("TIMING: It's been {} days since they last chatted. They've been away for a bit.", temporal.minutes_elapsed / 1440),
-        "extended_absence" => format!("TIMING: Extended absence -- {} days since last chat. Welcome them back warmly.", temporal.minutes_elapsed / 1440),
-        "first_time" => "TIMING: This is their FIRST conversation ever. Welcome them.".to_string(),
-        _ => "TIMING: Unknown timing context.".to_string(),
-    };
-    context_parts.push(temporal_desc);
-    
-    // 2. TIME OF DAY
-    let time_of_day_desc = match temporal.time_of_day.as_str() {
-        "early_morning" => format!("TIME OF DAY: Early morning ({}:00). They're up early.", temporal.hour),
-        "morning" => format!("TIME OF DAY: Morning ({}:00). Standard working hours.", temporal.hour),
-        "afternoon" => format!("TIME OF DAY: Afternoon ({}:00). Midday energy.", temporal.hour),
-        "evening" => format!("TIME OF DAY: Evening ({}:00). Winding down or reflective time.", temporal.hour),
-        "late_night" => format!("TIME OF DAY: Late night ({}:00). They're burning the midnight oil.", temporal.hour),
+    // 1. TIME OF DAY (current time only)
+    let time_of_day_desc = match time_of_day {
+        "early_morning" => format!("TIME OF DAY: Early morning ({}:00). They're up early.", hour),
+        "morning" => format!("TIME OF DAY: Morning ({}:00). Standard working hours.", hour),
+        "afternoon" => format!("TIME OF DAY: Afternoon ({}:00). Midday energy.", hour),
+        "evening" => format!("TIME OF DAY: Evening ({}:00). Winding down or reflective time.", hour),
+        "late_night" => format!("TIME OF DAY: Late night ({}:00). They're burning the midnight oil.", hour),
         _ => "TIME OF DAY: Unknown.".to_string(),
     };
     context_parts.push(time_of_day_desc);
     
-    // 3. LAST CONVERSATION STATE
-    if let Some(ref summary) = last_summary {
-        let mut last_conv_parts = vec![format!("LAST CONVERSATION:")];
-        last_conv_parts.push(format!("- Summary: {}", summary.summary));
-        if let Some(ref tone) = summary.emotional_tone {
-            last_conv_parts.push(format!("- Emotional tone: {}", tone));
-        }
-        if let Some(ref state) = summary.user_state {
-            last_conv_parts.push(format!("- User state: {}", state));
-        }
-        // Check for potential unresolved signals in the summary
-        let summary_lower = summary.summary.to_lowercase();
-        let unresolved_signals = ["trying to", "working on", "figuring out", "struggling with", 
-                                   "not sure", "debating", "considering", "exploring", "stuck on"];
-        let might_be_unresolved = unresolved_signals.iter().any(|s| summary_lower.contains(s));
-        if might_be_unresolved {
-            last_conv_parts.push("- SIGNAL: The last conversation may have left something unresolved or in-progress.".to_string());
-        }
-        context_parts.push(last_conv_parts.join("\n"));
-    } else if let Some(last_conv) = recent_conversations.first() {
-        // No summary but we have conversation metadata
-        if let Some(ref title) = last_conv.title {
-            context_parts.push(format!("LAST CONVERSATION: Topic was \"{}\" (no detailed summary available).", title));
-        }
-    }
-    
-    // 4. ACTIVE PROFILE
+    // 2. ACTIVE PROFILE
     let profile_context = match active_trait {
         "instinct" => "CURRENT PROFILE: INSTINCT (Snap) -- gut-feeling, action-oriented mode. Raw, impulsive energy.",
         "logic" => "CURRENT PROFILE: LOGIC (Dot) -- analytical, systematic mode. Problem-solving, seeking clarity.",
@@ -514,7 +444,7 @@ async fn generate_governor_greeting(anthropic_key: &str, recent_conversations: &
     };
     context_parts.push(profile_context.to_string());
     
-    // 5. USER KNOWLEDGE
+    // 3. USER KNOWLEDGE (learned facts about user)
     let personal_facts: Vec<_> = user_facts.iter()
         .filter(|f| f.category == "personal" || f.category == "preferences")
         .take(5)
@@ -524,7 +454,7 @@ async fn generate_governor_greeting(anthropic_key: &str, recent_conversations: &
         context_parts.push(format!("KNOWN ABOUT USER:\n{}", personal_facts.join("\n")));
     }
     
-    // 6. PATTERNS
+    // 4. PATTERNS (learned behavioral patterns)
     let themes: Vec<_> = user_patterns.iter()
         .filter(|p| p.confidence > 0.5)
         .take(3)
@@ -534,23 +464,9 @@ async fn generate_governor_greeting(anthropic_key: &str, recent_conversations: &
         context_parts.push(format!("BEHAVIORAL PATTERNS:\n{}", themes.join("\n")));
     }
     
-    // 7. RECENT TOPICS (beyond just the last one)
-    if recent_conversations.len() > 1 {
-        let other_recent: Vec<String> = recent_conversations
-            .iter()
-            .skip(1)
-            .take(2)
-            .filter_map(|c| c.title.as_ref())
-            .map(|t| format!("- {}", t))
-            .collect();
-        if !other_recent.is_empty() {
-            context_parts.push(format!("OTHER RECENT TOPICS:\n{}", other_recent.join("\n")));
-        }
-    }
-    
     let full_context = context_parts.join("\n\n");
     
-    // ===== SOPHISTICATED SYSTEM PROMPT =====
+    // ===== SIMPLIFIED SYSTEM PROMPT =====
     let agent_name = match active_trait {
         "instinct" => "Snap",
         "logic" => "Dot",
@@ -563,32 +479,6 @@ async fn generate_governor_greeting(anthropic_key: &str, recent_conversations: &
 ## CRITICAL OUTPUT INSTRUCTION
 
 Generate EXACTLY ONE greeting. Output ONLY that greeting text -- no quotes around it, no explanations, no alternatives, no bullet points, no slashes showing options. Just the raw greeting as you would say it.
-
-## TIMING CONTEXT (shapes the entire approach)
-
-**Quick Return (< 5 min):** They just ended a conversation and started another.
-Examples: "What else?" or "Something else on your mind?" or "More to unpack?"
-DON'T ask how their day is going -- you JUST talked.
-
-**Short Break (5-60 min):** Session continuation.
-Examples: "Ready for round two?" or "Back at it?"
-
-**Hours Later (same day):** Fresh return.
-Examples: "Taking another look?" or "Fresh perspective?"
-
-**New Day:** New calendar day, fresh start.
-Examples: "Hey [name], how's today treating you?" or "New day -- what's on your mind?"
-
-**Days Away (2-3 days):** They've been absent.
-Examples: "Been a minute -- what's been going on?" or "Hey, it's been a few days."
-
-**Extended Absence (3+ days):** Warm return.
-Examples: "Good to see you back. What brings you?"
-
-## UNRESOLVED TOPICS
-
-If the last conversation left something unresolved, reference it:
-Examples: "Did you figure out [topic]?" or "Still mulling over [X]?"
 
 ## YOUR PERSONALITY ({agent_name})
 
@@ -609,7 +499,8 @@ Only mention if relevant.
 - Warm and familiar, never robotic
 - Use their name if you know it (but not always)
 - When using dashes: ALWAYS " -- " (double dashes with spaces)
-- NO meta-commentary, explanations, or quotation marks around your output"#);
+- NO meta-commentary, explanations, or quotation marks around your output
+- This is a fresh conversation - don't reference past conversations"#);
 
     let client = AnthropicClient::new(anthropic_key);
     let messages = vec![
@@ -625,6 +516,141 @@ Only mention if relevant.
         messages,
         0.8,
         Some(100), // More room for nuanced greeting
+        ThinkingBudget::None
+    ).await
+}
+
+/// Generate Governor's synthesized response after reading agent thoughts
+/// The Governor reads agent responses (as internal thoughts) and synthesizes a response
+/// based on the user's question, agent thoughts, and mode (helpful normal vs challenging disco)
+async fn generate_governor_response(
+    anthropic_key: &str,
+    user_message: &str,
+    agent_responses: &[(String, String)], // (agent_name, content)
+    conversation_history: &[Message],
+    is_disco: bool,
+    user_profile: Option<&UserProfileSummary>,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    use crate::anthropic::{AnthropicClient, AnthropicMessage, ThinkingBudget, CLAUDE_SONNET};
+    
+    // Format agent thoughts for the Governor to read
+    let agent_thoughts_text = if agent_responses.is_empty() {
+        "No agent thoughts available.".to_string()
+    } else {
+        agent_responses.iter()
+            .map(|(agent, content)| {
+                let agent_display = match agent.as_str() {
+                    "instinct" => "Snap (Instinct)",
+                    "logic" => "Dot (Logic)",
+                    "psyche" => "Puff (Psyche)",
+                    _ => agent,
+                };
+                format!("{}: {}", agent_display, content)
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    };
+    
+    // Build conversation context (last 5 messages for context)
+    let recent_context = if conversation_history.is_empty() {
+        "No previous messages in this conversation.".to_string()
+    } else {
+        let recent: Vec<String> = conversation_history
+            .iter()
+            .rev()
+            .take(5)
+            .rev()
+            .map(|m| {
+                let role_display = match m.role.as_str() {
+                    "user" => "User",
+                    "governor" => "Governor",
+                    "instinct" => "Snap",
+                    "logic" => "Dot",
+                    "psyche" => "Puff",
+                    _ => &m.role,
+                };
+                format!("{}: {}", role_display, m.content)
+            })
+            .collect();
+        format!("Recent conversation:\n{}", recent.join("\n"))
+    };
+    
+    // Build user profile context if available
+    let profile_context = if let Some(profile) = user_profile {
+        let patterns_text = if profile.top_patterns.is_empty() {
+            "No patterns detected yet.".to_string()
+        } else {
+            profile.top_patterns.iter()
+                .take(3)
+                .map(|p| format!("- {}: {}", p.pattern_type, p.description))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        format!(
+            "\nUser profile context:\n{}\n\nCommunication style: {}\nThinking preference: {}\nEmotional tendency: {}",
+            patterns_text,
+            profile.communication_style.as_ref().unwrap_or(&"Not yet observed".to_string()),
+            profile.thinking_preference.as_ref().unwrap_or(&"Not yet observed".to_string()),
+            profile.emotional_tendency.as_ref().unwrap_or(&"Not yet observed".to_string())
+        )
+    } else {
+        "No user profile data yet.".to_string()
+    };
+    
+    // Build system prompt based on mode
+    let mode_instructions = if is_disco {
+        r#"DISCO MODE: You are challenging and provocative. Your goal is to push back, question assumptions, and help the user see blind spots. Use the agent thoughts to identify contradictions, weaknesses in reasoning, or areas where the user might be avoiding difficult truths. Be direct, challenging, but intellectually rigorous. Don't just be contrarian - be meaningfully challenging."#
+    } else {
+        r#"NORMAL MODE: You are helpful, supportive, and solution-oriented. Synthesize the agent thoughts to provide the best possible response to the user's question. Combine the different perspectives into a coherent, useful answer. Be warm, practical, and focused on being genuinely helpful."#
+    };
+    
+    let system_prompt = format!(r#"You are the Governor of Intersect, an orchestration layer that manages multi-agent conversations.
+
+## YOUR ROLE
+
+You orchestrate multiple agents (Snap/Instinct, Dot/Logic, Puff/Psyche) that think through questions internally. These agents have already responded to the user's message - their thoughts are shown below as INTERNAL PROCESSING that you (and only you) can see.
+
+The user cannot see these agent thoughts. They only see your final synthesized response.
+
+## MODE: {}
+
+## TASK
+
+Read the agent thoughts below (these are internal - the user cannot see them). Synthesize their perspectives into a single, coherent response to the user's question. Your response should:
+
+1. Synthesize the key insights from the agent thoughts
+2. Address the user's original question directly
+3. Feel natural and conversational - not like you're listing multiple perspectives
+4. Be informed by the agent thoughts, but speak as the Governor, not as a committee
+
+## AGENT THOUGHTS (INTERNAL - USER CANNOT SEE)
+
+{}
+
+## CONVERSATION CONTEXT
+
+{}
+
+## USER PROFILE
+
+{}
+
+Remember: The user cannot see the agent thoughts. You are synthesizing them into a single, coherent response that reflects the best thinking from your internal agents."#, mode_instructions, agent_thoughts_text, recent_context, profile_context);
+    
+    let client = AnthropicClient::new(anthropic_key);
+    let messages = vec![
+        AnthropicMessage {
+            role: "user".to_string(),
+            content: format!("User's message: {}\n\nGenerate your synthesized response based on the agent thoughts above.", user_message),
+        },
+    ];
+    
+    client.chat_completion_advanced(
+        CLAUDE_SONNET,
+        Some(&system_prompt),
+        messages,
+        0.7,
+        Some(1024), // Allow for detailed synthesis
         ThinkingBudget::None
     ).await
 }
@@ -737,10 +763,31 @@ async fn send_message(
     let profile = db::get_user_profile().map_err(|e| e.to_string())?;
     let api_key = profile.api_key.clone().ok_or("OpenAI API key not set")?;
     let anthropic_key = profile.anthropic_key.clone().ok_or("Anthropic API key not set")?;
-    let initial_weights = (profile.instinct_weight, profile.logic_weight, profile.psyche_weight);
+    
+    // Get active persona profile for points and dominant trait
+    let active_persona = db::get_active_persona_profile().map_err(|e| e.to_string())?
+        .ok_or("No active persona profile")?;
+    let points = (active_persona.instinct_points, active_persona.logic_points, active_persona.psyche_points);
+    let dominant_trait = Some(active_persona.dominant_trait.as_str());
+    
+    // ===== SESSION WEIGHTS: Separate base (persistent) from session (decaying) =====
+    let base_weights = (profile.instinct_weight, profile.logic_weight, profile.psyche_weight);
+    
+    // Decay session weights by 10% per exchange
+    decay_session_weights(&conversation_id);
+    
+    // Get current session weights
+    let session_weights = get_or_init_session_weights(&conversation_id);
+    
+    // Combine base + session for routing
+    let routing_weights = (
+        base_weights.0 + session_weights.0,
+        base_weights.1 + session_weights.1,
+        base_weights.2 + session_weights.2,
+    );
     
     if active_agents.is_empty() {
-        return Ok(SendMessageResult { responses: Vec::new(), debate_mode: None, weight_change: None });
+        return Ok(SendMessageResult { responses: Vec::new(), debate_mode: None, weight_change: None, governor_response: None });
     }
     
     // ===== MEMORY SYSTEM: Build User Profile =====
@@ -748,9 +795,6 @@ async fn send_message(
     
     // Get existing facts for extraction context
     let existing_facts = db::get_all_user_facts().unwrap_or_default();
-    
-    // Track initial dominant agent for change detection
-    let _initial_dominant = get_dominant_agent(initial_weights);
     
     // Save user message
     let user_msg = Message {
@@ -784,13 +828,15 @@ async fn send_message(
         decide_grounding_heuristic(&user_message, &recent_messages, Some(profile))
     });
     
-    // Use heuristic routing (instant, no API call)
+    // Use heuristic routing with combined base + session weights, points, and dominant trait
     let decision = decide_response_heuristic(
         &user_message, 
-        initial_weights, 
+        routing_weights, 
         &active_agents,
         &recent_messages,
         has_any_disco,
+        Some(points),
+        dominant_trait,
     );
     
     let mut responses = Vec::new();
@@ -846,11 +892,8 @@ async fn send_message(
         references_message_id: None,
     });
     
-    // Update weights for primary agent (disco dampening now applied at engagement analysis stage)
-    let new_weights = evolve_weights(initial_weights, primary_agent, InteractionType::ChosenAsPrimary, profile.total_messages);
-    db::update_weights(new_weights.0, new_weights.1, new_weights.2).map_err(|e| e.to_string())?;
-    let mut final_weights = new_weights;
-    let mut had_secondary = false;
+    // Boost session weight for primary agent (immediate, decays over conversation)
+    boost_session_weight(&conversation_id, primary_agent, 0.02);
     
     // Get secondary agent response if needed
     if decision.add_secondary {
@@ -909,7 +952,6 @@ async fn send_message(
                         });
                     }
                 }
-                had_secondary = true;
             } else if let Some(secondary_agent) = Agent::from_str(&secondary_agent_str) {
                 agents_involved.push(secondary_agent.as_str().to_string());
                 
@@ -969,12 +1011,8 @@ async fn send_message(
                     references_message_id: Some(primary_msg_id.clone()),
                 });
                 
-                // Update weights for secondary agent (disco dampening now applied at engagement analysis stage)
-                let weights_after_primary = (new_weights.0, new_weights.1, new_weights.2);
-                let secondary_weights = evolve_weights(weights_after_primary, secondary_agent, InteractionType::ChosenAsSecondary, profile.total_messages);
-                db::update_weights(secondary_weights.0, secondary_weights.1, secondary_weights.2).map_err(|e| e.to_string())?;
-                final_weights = secondary_weights;
-                had_secondary = true;
+                // Boost session weight for secondary agent (immediate, decays over conversation)
+                boost_session_weight(&conversation_id, secondary_agent, 0.015);
                 
                 // ===== MULTI-TURN DEBATE LOOP =====
                 // Allow debates when there's genuine disagreement (rebuttal/debate), not just additions
@@ -989,7 +1027,6 @@ async fn send_message(
                     let mut last_agent = secondary_agent.as_str().to_string();
                     let mut last_agent_disco = secondary_is_disco;
                     let mut last_msg_id = secondary_msg.id.clone();
-                    let mut current_weights = final_weights;
                     
                     // Try to continue debate (up to 2 more responses, max 4 total)
                     for turn in 0..2 {
@@ -1063,11 +1100,8 @@ async fn send_message(
                                     references_message_id: Some(last_msg_id.clone()),
                                 });
                                 
-                                // Update weights (disco dampening now applied at engagement analysis stage)
-                                let debate_weights = evolve_weights(current_weights, next_agent, InteractionType::ChosenAsSecondary, profile.total_messages);
-                                db::update_weights(debate_weights.0, debate_weights.1, debate_weights.2).map_err(|e| e.to_string())?;
-                                current_weights = debate_weights;
-                                final_weights = debate_weights;
+                                // Boost session weight for debate agent (immediate, decays over conversation)
+                                boost_session_weight(&conversation_id, next_agent, 0.015);
                                 
                                 // Update for next iteration
                                 responses_so_far.push((next_agent.as_str().to_string(), next_response.clone()));
@@ -1089,6 +1123,52 @@ async fn send_message(
             }
         }
     }
+    
+    // ===== GOVERNOR SYNTHESIS: Generate synthesized response after reading agent thoughts =====
+    let governor_response = if !responses.is_empty() {
+        // Collect agent responses as tuples of (agent_name, content)
+        let agent_responses: Vec<(String, String)> = responses
+            .iter()
+            .map(|r| (r.agent.clone(), r.content.clone()))
+            .collect();
+        
+        // Generate Governor's synthesized response
+        match generate_governor_response(
+            &anthropic_key,
+            &user_message,
+            &agent_responses,
+            &recent_messages,
+            has_any_disco,
+            user_profile.as_ref(),
+        ).await {
+            Ok(response) => {
+                // Save Governor response to database
+                let governor_msg = Message {
+                    id: Uuid::new_v4().to_string(),
+                    conversation_id: conversation_id.clone(),
+                    role: "governor".to_string(),
+                    content: response.clone(),
+                    response_type: None,
+                    references_message_id: None,
+                    timestamp: Utc::now().to_rfc3339(),
+                };
+                if let Err(e) = db::save_message(&governor_msg) {
+                    logging::log_error(Some(&conversation_id), &format!(
+                        "Failed to save Governor response: {}", e
+                    ));
+                }
+                Some(response)
+            }
+            Err(e) => {
+                logging::log_error(Some(&conversation_id), &format!(
+                    "Failed to generate Governor response: {}", e
+                ));
+                None
+            }
+        }
+    } else {
+        None
+    };
     
     // Increment message count
     db::increment_message_count().map_err(|e| e.to_string())?;
@@ -1261,15 +1341,9 @@ async fn send_message(
         });
     }
     
-    // Generate weight change notification
-    let weight_change = generate_weight_notification(
-        initial_weights,
-        final_weights,
-        primary_agent.as_str(),
-        had_secondary,
-    );
-    
-    Ok(SendMessageResult { responses, debate_mode, weight_change })
+    // Weight changes are handled by background analysis only (base weights)
+    // Session weights decay automatically and don't generate notifications
+    Ok(SendMessageResult { responses, debate_mode, weight_change: None, governor_response })
 }
 
 // ============ User Context (Legacy) ============
@@ -1348,6 +1422,16 @@ fn get_memory_stats() -> Result<MemoryStats, String> {
         top_patterns,
         top_themes,
     })
+}
+
+#[tauri::command]
+fn update_weights(instinct: f64, logic: f64, psyche: f64) -> Result<(), String> {
+    db::update_weights(instinct, logic, psyche).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn update_points(instinct: i64, logic: i64, psyche: i64) -> Result<(), String> {
+    db::update_points(instinct, logic, psyche).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1583,6 +1667,56 @@ async fn set_always_on_top(window: tauri::Window, always_on_top: bool) -> Result
     window.set_always_on_top(always_on_top).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn get_governor_disco_image() -> Result<Option<String>, String> {
+    use std::path::PathBuf;
+    use std::fs;
+    
+    // Get home directory
+    let home = std::env::var("HOME").map_err(|e| format!("Failed to get HOME: {}", e))?;
+    let desktop_path = PathBuf::from(home).join("Desktop/the_governor-disco_mode.png");
+    
+    // Check if file exists
+    if !desktop_path.exists() {
+        return Ok(None);
+    }
+    
+    // Read file as bytes
+    let bytes = fs::read(&desktop_path).map_err(|e| format!("Failed to read file: {}", e))?;
+    
+    // Convert to base64 data URL
+    use base64::{Engine as _, engine::general_purpose};
+    let base64 = general_purpose::STANDARD.encode(&bytes);
+    let data_url = format!("data:image/png;base64,{}", base64);
+    
+    Ok(Some(data_url))
+}
+
+#[tauri::command]
+fn get_governor_image() -> Result<Option<String>, String> {
+    use std::path::PathBuf;
+    use std::fs;
+    
+    // Get home directory
+    let home = std::env::var("HOME").map_err(|e| format!("Failed to get HOME: {}", e))?;
+    let desktop_path = PathBuf::from(home).join("Desktop/the_governor.png");
+    
+    // Check if file exists
+    if !desktop_path.exists() {
+        return Ok(None);
+    }
+    
+    // Read file as bytes
+    let bytes = fs::read(&desktop_path).map_err(|e| format!("Failed to read file: {}", e))?;
+    
+    // Convert to base64 data URL
+    use base64::{Engine as _, engine::general_purpose};
+    let base64 = general_purpose::STANDARD.encode(&bytes);
+    let data_url = format!("data:image/png;base64,{}", base64);
+    
+    Ok(Some(data_url))
+}
+
 // ============ Run ============
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1622,6 +1756,9 @@ pub fn run() {
             generate_user_summary,
             reset_all_data,
             set_always_on_top,
+            get_governor_disco_image,
+            update_weights,
+            update_points,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,12 +1,12 @@
 import { create } from 'zustand';
-import { Message, UserProfile, PersonaProfile, Conversation, AgentType, AgentMode, DebateMode } from '../types';
+import { Message, UserProfile, PersonaProfile, Conversation, AgentType, DebateMode } from '../types';
 
 export type Theme = 'light' | 'dark' | 'system';
 
 interface AgentModeState {
-  instinct: AgentMode;
-  logic: AgentMode;
-  psyche: AgentMode;
+  instinct: 'on' | 'off';
+  logic: 'on' | 'off';
+  psyche: 'on' | 'off';
 }
 
 interface AppState {
@@ -30,15 +30,16 @@ interface AppState {
   setMessages: (messages: Message[]) => void;
   clearMessages: () => void;
   
-  // Agent modes (off, on, or disco per-agent)
+  // Agent modes (simple on/off toggle)
   agentModes: AgentModeState;
   toggleAgentMode: (agent: AgentType) => void;
-  toggleAllDisco: () => void;
+  
+  // Global disco mode (all agents + governor)
+  isDiscoMode: boolean;
+  toggleDiscoMode: () => void;
+  
   getActiveAgentsList: () => AgentType[];
-  getDiscoAgentsList: () => AgentType[];
   isAgentActive: (agent: AgentType) => boolean;
-  isAgentDisco: (agent: AgentType) => boolean;
-  hasAnyDiscoAgent: () => boolean;
   
   // Legacy compatibility (deprecated - use agentModes instead)
   activeAgents: { instinct: boolean; logic: boolean; psyche: boolean };
@@ -116,53 +117,32 @@ export const useAppStore = create<AppState>((set, get) => ({
     const currentMode = state.agentModes[agent];
     const activeCount = Object.values(state.agentModes).filter(m => m !== 'off').length;
     
-    // Cycle: off -> on -> disco -> off
+    // Simple toggle: off -> on, on -> off
     // But prevent turning off if it's the last active agent
-    let nextMode: AgentMode;
     if (currentMode === 'off') {
-      nextMode = 'on';
-    } else if (currentMode === 'on') {
-      nextMode = 'disco';
+      return {
+        agentModes: {
+          ...state.agentModes,
+          [agent]: 'on',
+        },
+      };
     } else {
-      // disco -> off, but prevent if it's the last active agent
+      // Can't turn off the last agent
       if (activeCount <= 1) {
-        nextMode = 'on'; // Can't turn off the last agent, cycle back to on
-      } else {
-        nextMode = 'off';
+        return state; // No change
       }
+      return {
+        agentModes: {
+          ...state.agentModes,
+          [agent]: 'off',
+        },
+      };
     }
-    
-    return {
-      agentModes: {
-        ...state.agentModes,
-        [agent]: nextMode,
-      },
-    };
   }),
   
-  toggleAllDisco: () => set((state) => {
-    const hasAnyDisco = Object.values(state.agentModes).some(m => m === 'disco');
-    
-    if (hasAnyDisco) {
-      // Turn all disco agents back to 'on'
-      return {
-        agentModes: {
-          instinct: state.agentModes.instinct === 'disco' ? 'on' : state.agentModes.instinct,
-          logic: state.agentModes.logic === 'disco' ? 'on' : state.agentModes.logic,
-          psyche: state.agentModes.psyche === 'disco' ? 'on' : state.agentModes.psyche,
-        },
-      };
-    } else {
-      // Turn all active agents to disco
-      return {
-        agentModes: {
-          instinct: state.agentModes.instinct !== 'off' ? 'disco' : 'off',
-          logic: state.agentModes.logic !== 'off' ? 'disco' : 'off',
-          psyche: state.agentModes.psyche !== 'off' ? 'disco' : 'off',
-        },
-      };
-    }
-  }),
+  // Global disco mode (all agents + governor)
+  isDiscoMode: false,
+  toggleDiscoMode: () => set((state) => ({ isDiscoMode: !state.isDiscoMode })),
   
   getActiveAgentsList: () => {
     const state = get();
@@ -173,44 +153,44 @@ export const useAppStore = create<AppState>((set, get) => ({
     return agents;
   },
   
-  getDiscoAgentsList: () => {
-    const state = get();
-    const agents: AgentType[] = [];
-    if (state.agentModes.instinct === 'disco') agents.push('instinct');
-    if (state.agentModes.logic === 'disco') agents.push('logic');
-    if (state.agentModes.psyche === 'disco') agents.push('psyche');
-    return agents;
-  },
-  
   isAgentActive: (agent) => {
     const state = get();
     return state.agentModes[agent] !== 'off';
   },
   
-  isAgentDisco: (agent) => {
-    const state = get();
-    return state.agentModes[agent] === 'disco';
-  },
-  
-  hasAnyDiscoAgent: () => {
-    const state = get();
-    return Object.values(state.agentModes).some(m => m === 'disco');
-  },
-  
-  // Legacy disco conversation check - now derived from agent modes
+  // Legacy disco conversation check - now uses global disco mode
   isDiscoConversation: () => {
     const state = get();
-    return Object.values(state.agentModes).some(m => m === 'disco');
+    return state.isDiscoMode;
   },
   
   // Legacy compatibility - computed from agentModes
   get activeAgents() {
     const state = get();
     return {
-      instinct: state.agentModes.instinct !== 'off',
-      logic: state.agentModes.logic !== 'off',
-      psyche: state.agentModes.psyche !== 'off',
+      instinct: state.agentModes.instinct === 'on',
+      logic: state.agentModes.logic === 'on',
+      psyche: state.agentModes.psyche === 'on',
     };
+  },
+  
+  // Legacy compatibility methods
+  getDiscoAgentsList: () => {
+    const state = get();
+    // If disco mode is on, return all active agents
+    if (state.isDiscoMode) {
+      return state.getActiveAgentsList();
+    }
+    return [];
+  },
+  
+  hasAnyDiscoAgent: () => {
+    const state = get();
+    return state.isDiscoMode;
+  },
+  
+  toggleAllDisco: () => {
+    get().toggleDiscoMode();
   },
   
   toggleAgent: (agent) => {

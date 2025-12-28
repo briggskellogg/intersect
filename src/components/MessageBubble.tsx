@@ -2,29 +2,48 @@ import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import { Message, AgentType } from '../types';
-import { AGENTS, DISCO_AGENTS, USER_PROFILES, GOVERNOR } from '../constants/agents';
+import { AGENTS, DISCO_AGENTS, GOVERNOR, USER_PROFILES } from '../constants/agents';
 import { useAppStore } from '../store';
 
 interface MessageBubbleProps {
   message: Message;
   isLatest?: boolean;
+  governorDiscoIcon?: string | null;
+  governorIcon?: string | null;
+  isDiscoMode?: boolean;
 }
 
-export function MessageBubble({ message, isLatest: _isLatest }: MessageBubbleProps) {
-  const { activePersonaProfile } = useAppStore();
+export function MessageBubble({ message, isLatest: _isLatest, governorDiscoIcon, governorIcon, isDiscoMode = false }: MessageBubbleProps) {
+  const { theme } = useAppStore();
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
+  const isGovernor = message.role === 'governor';
+  const isGovernorThoughts = message.role === 'governor_thoughts';
   const agentConfig = message.isDisco ? DISCO_AGENTS : AGENTS;
-  const agent = isUser ? null : isSystem ? GOVERNOR : agentConfig[message.role as AgentType];
+  
+  // Determine if we're in light mode
+  const isLightMode = theme === 'light' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: light)').matches);
+  
+  // Determine which governor avatar to use - check both message.isDisco and global isDiscoMode
+  const shouldUseDiscoAvatar = (isGovernor || isSystem) && (message.isDisco || isDiscoMode) && governorDiscoIcon;
+  const governorAvatar = shouldUseDiscoAvatar 
+    ? governorDiscoIcon 
+    : (governorIcon || GOVERNOR.avatar);
+  
+  const agent = isUser 
+    ? null 
+    : isSystem || isGovernor || isGovernorThoughts 
+      ? { ...GOVERNOR, avatar: governorAvatar }
+      : agentConfig[message.role as AgentType];
   
   
-  // Typewriter effect for agent messages
+  // Typewriter effect for agent messages and governor thoughts
   const [displayedText, setDisplayedText] = useState(() => isUser ? message.content : '');
   const [isTyping, setIsTyping] = useState(() => !isUser);
   const messageIdRef = useRef(message.id);
   
   useEffect(() => {
-    // Skip typing effect for user messages
+    // Skip typing effect for user messages only
     if (isUser) {
       setDisplayedText(message.content);
       setIsTyping(false);
@@ -53,6 +72,10 @@ export function MessageBubble({ message, isLatest: _isLatest }: MessageBubblePro
           return { interval: 14, charsMin: 2, charsMax: 3 }; // Medium, thoughtful
         case 'logic':
           return { interval: 22, charsMin: 1, charsMax: 2 }; // Slow, deliberate
+        case 'governor_thoughts':
+          return { interval: 10, charsMin: 2, charsMax: 4 }; // Medium-fast for thoughts
+        case 'governor':
+          return { interval: 15, charsMin: 2, charsMax: 3 }; // Medium for Governor responses
         default:
           return { interval: 12, charsMin: 2, charsMax: 3 }; // System/default
       }
@@ -77,9 +100,15 @@ export function MessageBubble({ message, isLatest: _isLatest }: MessageBubblePro
     return () => clearInterval(typingInterval);
   }, [message.id, message.content, isUser, message.role]);
   
-  // Get user's dominant agent from active persona profile for their profile photo
-  const dominantAgent: AgentType = activePersonaProfile?.dominantTrait || 'logic';
-  const userAvatar = USER_PROFILES[dominantAgent];
+  // Use dominant trait profile picture for user messages
+  const { activePersonaProfile, userProfile } = useAppStore();
+  // Use activePersonaProfile's dominantTrait if available, otherwise calculate from weights
+  const dominantTrait = activePersonaProfile?.dominantTrait || 
+    (userProfile ? (
+      userProfile.logicWeight > userProfile.psycheWeight && userProfile.logicWeight > userProfile.instinctWeight ? 'logic' :
+      userProfile.psycheWeight > userProfile.instinctWeight ? 'psyche' : 'instinct'
+    ) : 'instinct');
+  const userAvatar = USER_PROFILES[dominantTrait];
   
   return (
     <motion.div
@@ -136,12 +165,14 @@ export function MessageBubble({ message, isLatest: _isLatest }: MessageBubblePro
           className={`px-3 py-2 rounded-2xl ${
             isUser
               ? 'bg-smoke/40 text-pearl/90'
-              : 'bg-charcoal/40'
+              : isGovernorThoughts
+              ? 'bg-charcoal/25 border border-ash/40 opacity-75'
+              : 'bg-charcoal/40 text-pearl'
           }`}
           style={{ maxWidth: 'calc(75vw - 60px)' }}
         >
           {/* Agent name tag - compact */}
-          {!isUser && !isSystem && agent && (
+          {!isUser && !isSystem && !isGovernor && !isGovernorThoughts && agent && (
             <span 
               className="inline-block px-2 py-0.5 rounded text-[11px] font-mono font-medium mb-1.5"
               style={{ 
@@ -153,9 +184,86 @@ export function MessageBubble({ message, isLatest: _isLatest }: MessageBubblePro
             </span>
           )}
           
+          {/* Governor thoughts label - shows agent name */}
+          {isGovernorThoughts && message.agentName && (
+            <div className="flex items-center gap-1.5 mb-1.5">
+              {(() => {
+                const agentType = Object.keys(AGENTS).find(
+                  key => AGENTS[key as AgentType].name === message.agentName
+                ) || Object.keys(DISCO_AGENTS).find(
+                  key => DISCO_AGENTS[key as AgentType].name === message.agentName
+                );
+                const agent = agentType 
+                  ? (message.isDisco ? DISCO_AGENTS : AGENTS)[agentType as AgentType]
+                  : null;
+                return agent ? (
+                  <span 
+                    className="inline-block px-2 py-0.5 rounded text-[10px] font-mono font-medium opacity-80"
+                    style={{ 
+                      backgroundColor: `${agent.color}20`,
+                      color: agent.color,
+                    }}
+                  >
+                    {agent.name}
+                  </span>
+                ) : (
+                  <span 
+                    className="inline-block px-2 py-0.5 rounded text-[10px] font-mono font-medium opacity-70"
+                    style={{ 
+                      backgroundColor: `${GOVERNOR.color}15`,
+                      color: GOVERNOR.color,
+                    }}
+                  >
+                    {message.agentName}
+                  </span>
+                );
+              })()}
+            </div>
+          )}
+          
+          {/* Governor response label - shows as final answer */}
+          {isGovernor && (
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <span 
+                className="inline-block px-2 py-0.5 rounded text-[11px] font-mono font-medium"
+                style={{ 
+                  backgroundColor: `${GOVERNOR.color}20`,
+                  color: GOVERNOR.color,
+                }}
+              >
+                {GOVERNOR.name}
+              </span>
+            </div>
+          )}
+          
+          {/* System message label (for error messages, etc.) */}
+          {isSystem && !isGovernor && !isGovernorThoughts && (
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <span 
+                className="inline-block px-2 py-0.5 rounded text-[11px] font-mono font-medium"
+                style={{ 
+                  backgroundColor: `${GOVERNOR.color}20`,
+                  color: GOVERNOR.color,
+                }}
+              >
+                {GOVERNOR.name}
+              </span>
+            </div>
+          )}
+          
           <div 
-            className="leading-snug text-[13px] font-mono prose prose-invert prose-sm max-w-none prose-p:my-2 prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-headings:my-1.5 prose-strong:font-semibold prose-code:bg-smoke/30 prose-code:px-1 prose-code:rounded prose-code:text-[12px]"
-            style={!isUser && agent ? { color: `${agent.color}dd` } : undefined}
+            className={`leading-snug text-[13px] font-mono prose prose-invert prose-sm max-w-none prose-p:my-2 prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-headings:my-1.5 prose-strong:font-semibold prose-code:bg-smoke/30 prose-code:px-1 prose-code:rounded prose-code:text-[12px] ${
+              isGovernorThoughts ? 'italic text-ash/60 text-[12px]' : isLightMode ? 'text-pearl' : ''
+            }`}
+            style={
+              !isUser && agent && !isLightMode
+                ? isGovernorThoughts 
+                  ? { color: `${GOVERNOR.color}aa` } // Muted governor color for thoughts (dark mode only)
+                  : isGovernor
+                    ? { color: `${GOVERNOR.color}dd` } // Full color for Governor responses (dark mode only)
+                    : { color: `${agent.color}dd` } // Agent color (dark mode only)
+                : undefined
+            }
           >
             {isTyping ? (
               <>

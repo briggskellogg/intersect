@@ -1,6 +1,6 @@
 [package]
 name = "intersect"
-version = "1.3.3"
+version = "1.1.0"
 description = "Intersect - Multi-Agent AI Companion"
 authors = ["Briggs Kellogg"]
 edition = "2021"
@@ -25,3 +25,4 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 once_cell = "1.19"
 rand = "0.9"
+base64 = "0.22"

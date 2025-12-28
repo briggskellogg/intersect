@@ -8,16 +8,15 @@ interface ThinkingIndicatorProps {
   isDisco?: boolean;
 }
 
-export function ThinkingIndicator({ agent, phase, isDisco = false }: ThinkingIndicatorProps) {
-  // During routing phase, show Governor; during thinking phase, show the agent
-  const isRouting = phase === 'routing';
+export function ThinkingIndicator({ agent, phase: _phase, isDisco = false }: ThinkingIndicatorProps) {
+  // Always show Governor when agent is 'system', otherwise show the agent
   const agentConfig = isDisco ? DISCO_AGENTS : AGENTS;
   const getAgentConfig = () => {
-    if (isRouting || !agent || agent === 'system') return GOVERNOR;
+    if (!agent || agent === 'system') return GOVERNOR;
     return agentConfig[agent];
   };
   const config = getAgentConfig();
-  const statusText = isRouting ? 'routing...' : 'is thinking...';
+  const statusText = 'is thinking...';
   
   return (
     <motion.div
@@ -54,7 +53,7 @@ export function ThinkingIndicator({ agent, phase, isDisco = false }: ThinkingInd
                 scale: [0.8, 1, 0.8],
               }}
               transition={{
-                duration: isRouting ? 0.6 : 1,
+                duration: 1,
                 repeat: Infinity,
                 delay: i * 0.15,
                 ease: 'easeInOut',
@@ -68,12 +67,6 @@ export function ThinkingIndicator({ agent, phase, isDisco = false }: ThinkingInd
       <div className="text-[10px] text-ash/40 mt-0.5 font-mono ml-10">
         <span style={{ color: config.color }}>{config.name}</span>
         <span className="ml-1">{statusText}</span>
-        {isRouting && agent && agent !== 'system' && (
-          <>
-            <span className="mx-1">→</span>
-            <span style={{ color: agentConfig[agent].color }}>{agentConfig[agent].name}</span>
-          </>
-        )}
       </div>
     </motion.div>
   );

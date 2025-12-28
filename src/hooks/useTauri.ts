@@ -74,6 +74,15 @@ export async function removeAnthropicKey(): Promise<void> {
   await invoke('remove_anthropic_key');
 }
 
+// Update weights manually
+export async function updateWeights(instinct: number, logic: number, psyche: number): Promise<void> {
+  await invoke('update_weights', { instinct, logic, psyche });
+}
+
+export async function updatePoints(instinct: number, logic: number, psyche: number): Promise<void> {
+  await invoke('update_points', { instinct, logic, psyche });
+}
+
 // Persona Profiles (Multi-Profile System)
 interface RawPersonaProfile {
   id: string;
@@ -85,6 +94,9 @@ interface RawPersonaProfile {
   instinct_weight: number;
   logic_weight: number;
   psyche_weight: number;
+  instinct_points: number;
+  logic_points: number;
+  psyche_points: number;
   message_count: number;
   created_at: string;
   updated_at: string;
@@ -101,6 +113,9 @@ function mapPersonaProfile(raw: RawPersonaProfile): PersonaProfile {
     instinctWeight: raw.instinct_weight,
     logicWeight: raw.logic_weight,
     psycheWeight: raw.psyche_weight,
+    instinctPoints: raw.instinct_points || 4,
+    logicPoints: raw.logic_points || 4,
+    psychePoints: raw.psyche_points || 3,
     messageCount: raw.message_count || 0,
     createdAt: new Date(raw.created_at),
     updatedAt: new Date(raw.updated_at),
@@ -217,6 +232,14 @@ export async function getConversationMessages(conversationId: string): Promise<M
 
 export async function clearConversation(conversationId: string): Promise<void> {
   await invoke('clear_conversation', { conversationId });
+}
+
+export async function deleteConversation(conversationId: string): Promise<void> {
+  await invoke('delete_conversation', { conversationId });
+}
+
+export async function reopenConversation(conversationId: string): Promise<ConversationOpenerResult> {
+  return invoke<ConversationOpenerResult>('reopen_conversation', { conversationId });
 }
 
 export async function finalizeConversation(conversationId: string): Promise<void> {
@@ -349,5 +372,14 @@ export async function resetAllData(): Promise<void> {
 // Window controls
 export async function setAlwaysOnTop(alwaysOnTop: boolean): Promise<void> {
   await invoke('set_always_on_top', { alwaysOnTop });
+}
+
+// Governor disco image
+export async function getGovernorDiscoImage(): Promise<string | null> {
+  return invoke<string | null>('get_governor_disco_image');
+}
+
+export async function getGovernorImage(): Promise<string | null> {
+  return invoke<string | null>('get_governor_image');
 }
 
