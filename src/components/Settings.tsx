@@ -40,7 +40,7 @@ const ARCHETYPES = {
     dominant: 'psyche' as const,
     points: { logic: 3, instinct: 4, psyche: 5 },
     image: sensitiveImage,
-    imagePosition: 'center 30%',
+    imagePosition: 'center top',
     description: 'Emotionally attuned',
   },
   brute: {
@@ -48,7 +48,7 @@ const ARCHETYPES = {
     dominant: 'instinct' as const,
     points: { logic: 2, instinct: 7, psyche: 3 },
     image: bruteImage,
-    imagePosition: 'center 35%',
+    imagePosition: 'center top',
     description: 'Gut-driven action',
   },
 } as const;
@@ -674,7 +674,7 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                         href="https://www.discoelysium.com"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center gap-1 text-[9px] text-amber-400/70 hover:text-amber-300 font-mono italic transition-colors cursor-pointer"
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-[9px] text-amber-400/80 hover:text-amber-300 hover:bg-amber-500/20 hover:border-amber-500/50 font-mono transition-all cursor-pointer"
                       >
                         <span>Inspired by Disco Elysium</span>
                         <ExternalLink className="w-2.5 h-2.5" strokeWidth={1.5} />
