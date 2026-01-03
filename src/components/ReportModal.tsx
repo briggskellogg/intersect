@@ -218,13 +218,13 @@ export function ReportModal({ isOpen, onClose, onOpenApiModal }: ReportModalProp
     <AnimatePresence>
       {isOpen && (
         <>
-          {/* Backdrop */}
+          {/* Backdrop - with rounded corners to match window */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-void/80 backdrop-blur-sm z-50"
+            className="fixed inset-0 bg-void/80 backdrop-blur-sm z-50 rounded-xl overflow-hidden"
           />
 
           {/* Modal */}

@@ -182,10 +182,10 @@ export function ApiKeyModal({ isOpen, onComplete, initialOpenAiKey, initialAnthr
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[100] flex items-center justify-center"
+          className="fixed inset-0 z-[100] flex items-center justify-center rounded-xl overflow-hidden"
           style={{ pointerEvents: 'all' }}
         >
-          {/* Backdrop */}
+          {/* Backdrop - with rounded corners to match window */}
           <div className="absolute inset-0 bg-void/60 backdrop-blur-sm" />
 
           {/* Modal */}

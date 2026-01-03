@@ -125,7 +125,7 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
     prevProfileId.current = activePersonaProfile?.id || null;
   }, [activePersonaProfile?.id]);
 
-  // Initialize conversation when API key is available or profile changes
+  // Initialize conversation when API keys are available or profile changes
   useEffect(() => {
     async function initConversation() {
       // Prevent double initialization in React StrictMode
@@ -160,17 +160,39 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
         setThinkingAgent(null);
       } catch (err) {
         console.error('Failed to init conversation:', err);
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        
+        // Parse the error and show a helpful notification
+        if (errorMessage.includes('Anthropic API key not set')) {
+          setGovernorNotification({
+            message: 'Anthropic API key required for the Governor. Add it in your profile.',
+            actionLabel: 'Open Profile',
+            onAction: onOpenSettings,
+          });
+        } else if (errorMessage.includes('OpenAI API key not set') || errorMessage.includes('API key not set')) {
+          setGovernorNotification({
+            message: 'OpenAI API key required. Add it in your profile.',
+            actionLabel: 'Open Profile',
+            onAction: onOpenSettings,
+          });
+        } else {
+          // Generic connection error
+          setGovernorNotification({
+            message: `Connection issue: ${errorMessage.slice(0, 100)}`,
+          });
+        }
+        
         setIsLoading(false);
         setThinkingAgent(null);
         hasInitialized.current = false; // Allow retry on error
       }
     }
     
-    // Only init if we have an API key and no current conversation
-    if (userProfile?.apiKey && !currentConversation) {
+    // Only init if we have BOTH API keys and no current conversation
+    if (userProfile?.apiKey && userProfile?.anthropicKey && !currentConversation) {
       initConversation();
     }
-  }, [userProfile?.apiKey, currentConversation]);
+  }, [userProfile?.apiKey, userProfile?.anthropicKey, currentConversation, onOpenSettings]);
 
   // Track if user has manually scrolled up
   const userScrolledUp = useRef(false);
@@ -564,16 +586,22 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
       // Parse and format friendly error message
       let friendlyMessage = rawError;
       
-      if (rawError.includes('insufficient_quota') || rawError.includes('exceeded your current quota')) {
+      if (rawError.includes('Anthropic API key not set')) {
+        friendlyMessage = "🔑 Anthropic API key required. Open Profile to add it.";
+      } else if (rawError.includes('OpenAI API key not set') || rawError.includes('API key not set')) {
+        friendlyMessage = "🔑 OpenAI API key required. Open Profile to add it.";
+      } else if (rawError.includes('insufficient_quota') || rawError.includes('exceeded your current quota')) {
         friendlyMessage = "⚠️ Billing Issue: Your OpenAI account has run out of credits. Visit platform.openai.com/account/billing to add funds, or update your API key in Profile.";
-      } else if (rawError.includes('429') || rawError.includes('Too Many Requests') || rawError.includes('rate_limit')) {
-        friendlyMessage = "⏳ Rate Limited: OpenAI is temporarily limiting requests. Wait 30 seconds and try again.";
-      } else if (rawError.includes('401') || rawError.includes('invalid_api_key') || rawError.includes('Incorrect API key')) {
-        friendlyMessage = "🔑 Invalid Key: Your API key was rejected by OpenAI. Check that it's correct in Profile, or generate a new one at platform.openai.com/api-keys.";
+      } else if (rawError.includes('credit_balance') || rawError.includes('billing')) {
+        friendlyMessage = "⚠️ Billing Issue: Check your Anthropic account credits at console.anthropic.com/settings/billing.";
+      } else if (rawError.includes('429') || rawError.includes('Too Many Requests') || rawError.includes('rate_limit') || rawError.includes('overloaded')) {
+        friendlyMessage = "⏳ Rate Limited: API is temporarily limiting requests. Wait 30 seconds and try again.";
+      } else if (rawError.includes('401') || rawError.includes('invalid_api_key') || rawError.includes('Incorrect API key') || rawError.includes('invalid_x-api-key')) {
+        friendlyMessage = "🔑 Invalid Key: Your API key was rejected. Check that it's correct in Profile.";
       } else if (rawError.includes('timeout') || rawError.includes('ETIMEDOUT')) {
-        friendlyMessage = "⏱️ Timeout: The request took too long. OpenAI might be experiencing high load. Try again.";
+        friendlyMessage = "⏱️ Timeout: The request took too long. Try again.";
       } else if (rawError.includes('network') || rawError.includes('fetch') || rawError.includes('Failed to fetch')) {
-        friendlyMessage = "🌐 Connection Failed: Unable to reach OpenAI. Check your internet connection.";
+        friendlyMessage = "🌐 Connection Failed: Check your internet connection.";
       } else if (rawError.includes('model_not_found') || rawError.includes('does not exist')) {
         friendlyMessage = "🤖 Model Error: The AI model is unavailable. This may be a temporary issue.";
       }

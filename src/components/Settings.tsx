@@ -529,13 +529,13 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
     <AnimatePresence>
       {isOpen && (
         <>
-          {/* Backdrop */}
+          {/* Backdrop - absolute to respect app-container clipping */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-void/80 backdrop-blur-sm z-40"
+            className="absolute inset-0 bg-void/80 backdrop-blur-sm z-40"
           />
 
           {/* Panel */}
@@ -544,7 +544,7 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: -10 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="fixed right-2 top-2 w-[480px] max-h-[calc(100vh-16px)] bg-obsidian/98 backdrop-blur-xl border border-smoke/40 rounded-2xl z-50 flex flex-col shadow-2xl"
+            className="absolute right-2 top-2 w-[480px] max-h-[calc(100%-16px)] bg-obsidian/98 backdrop-blur-xl border border-smoke/40 rounded-2xl z-50 flex flex-col shadow-2xl"
           >
             {/* Header - Started date and ESC */}
             <div className="flex items-center justify-between px-4 py-2 border-b border-smoke/30 flex-shrink-0">
@@ -563,6 +563,88 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
             </div>
 
             <div className="p-4 space-y-4 flex-1 overflow-y-auto">
+
+              {/* Archetypes Section */}
+              <div className="mb-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <p className="text-[10px] font-mono text-ash/50 uppercase tracking-wider">Archetypes</p>
+                  <a
+                    href="https://www.discoelysium.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-[9px] text-amber-400/80 hover:text-amber-300 hover:bg-amber-500/20 hover:border-amber-500/50 font-mono transition-all cursor-pointer"
+                  >
+                    <span>Inspired by Disco Elysium</span>
+                    <ExternalLink className="w-2.5 h-2.5" strokeWidth={1.5} />
+                  </a>
+                </div>
+                <div className="flex gap-2">
+                  {(Object.keys(ARCHETYPES) as Array<keyof typeof ARCHETYPES>).map((key) => {
+                    const archetype = ARCHETYPES[key];
+                    const isActive = 
+                      localPoints.logic === archetype.points.logic &&
+                      localPoints.instinct === archetype.points.instinct &&
+                      localPoints.psyche === archetype.points.psyche &&
+                      selectedDominantTrait === archetype.dominant;
+                    
+                    return (
+                      <button
+                        key={key}
+                        onClick={async () => {
+                          // Set points
+                          setLocalPoints(archetype.points);
+                          // Set dominant trait
+                          setSelectedDominantTrait(archetype.dominant);
+                          // Save to backend
+                          try {
+                            await updatePoints(
+                              archetype.points.instinct,
+                              archetype.points.logic,
+                              archetype.points.psyche
+                            );
+                            // Refresh profiles
+                            const updatedProfile = await getUserProfile();
+                            setUserProfile(updatedProfile);
+                            const activePersona = await getActivePersonaProfile();
+                            if (activePersona) {
+                              setActivePersonaProfile(activePersona);
+                            }
+                          } catch (err) {
+                            console.error('Failed to apply archetype:', err);
+                          }
+                        }}
+                        className={`flex-1 relative h-20 rounded-lg overflow-hidden border-2 transition-all cursor-pointer ${
+                          isActive
+                            ? 'border-amber-500 shadow-lg shadow-amber-500/20'
+                            : 'border-transparent hover:border-smoke/50'
+                        }`}
+                      >
+                        {/* Background image */}
+                        <img 
+                          src={archetype.image} 
+                          alt={archetype.name}
+                          className="absolute inset-0 w-full h-full object-cover"
+                          style={{ objectPosition: archetype.imagePosition }}
+                        />
+                        {/* Dark overlay for text readability */}
+                        <div className={`absolute inset-0 transition-all ${
+                          isActive 
+                            ? 'bg-gradient-to-t from-black/80 via-black/40 to-black/20' 
+                            : 'bg-gradient-to-t from-black/70 via-black/30 to-black/10 hover:from-black/60'
+                        }`} />
+                        {/* Archetype name */}
+                        <div className="absolute inset-0 flex items-end justify-center pb-2">
+                          <span className={`text-sm font-bold uppercase tracking-widest drop-shadow-lg ${
+                            isActive ? 'text-amber-400' : 'text-white/90'
+                          }`}>
+                            {archetype.name}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
 
               {/* Agent weights - Radar chart */}
               {userProfile && (
@@ -655,88 +737,6 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                         selectedDominantTrait={selectedDominantTrait}
                         onDominantTraitSelect={setSelectedDominantTrait}
                       />
-                    </div>
-                  </div>
-                  
-                  {/* Archetypes Section */}
-                  <div className="mt-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <p className="text-[10px] font-mono text-ash/50 uppercase tracking-wider">Archetypes</p>
-                      <a
-                        href="https://www.discoelysium.com"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-[9px] text-amber-400/80 hover:text-amber-300 hover:bg-amber-500/20 hover:border-amber-500/50 font-mono transition-all cursor-pointer"
-                      >
-                        <span>Inspired by Disco Elysium</span>
-                        <ExternalLink className="w-2.5 h-2.5" strokeWidth={1.5} />
-                      </a>
-                    </div>
-                    <div className="flex gap-2">
-                      {(Object.keys(ARCHETYPES) as Array<keyof typeof ARCHETYPES>).map((key) => {
-                        const archetype = ARCHETYPES[key];
-                        const isActive = 
-                          localPoints.logic === archetype.points.logic &&
-                          localPoints.instinct === archetype.points.instinct &&
-                          localPoints.psyche === archetype.points.psyche &&
-                          selectedDominantTrait === archetype.dominant;
-                        
-                        return (
-                          <button
-                            key={key}
-                            onClick={async () => {
-                              // Set points
-                              setLocalPoints(archetype.points);
-                              // Set dominant trait
-                              setSelectedDominantTrait(archetype.dominant);
-                              // Save to backend
-                              try {
-                                await updatePoints(
-                                  archetype.points.instinct,
-                                  archetype.points.logic,
-                                  archetype.points.psyche
-                                );
-                                // Refresh profiles
-                                const updatedProfile = await getUserProfile();
-                                setUserProfile(updatedProfile);
-                                const activePersona = await getActivePersonaProfile();
-                                if (activePersona) {
-                                  setActivePersonaProfile(activePersona);
-                                }
-                              } catch (err) {
-                                console.error('Failed to apply archetype:', err);
-                              }
-                            }}
-                            className={`flex-1 relative h-20 rounded-lg overflow-hidden border-2 transition-all cursor-pointer ${
-                              isActive
-                                ? 'border-amber-500 shadow-lg shadow-amber-500/20'
-                                : 'border-transparent hover:border-smoke/50'
-                            }`}
-                          >
-                            {/* Background image */}
-                            <img 
-                              src={archetype.image} 
-                              alt={archetype.name}
-                              className="absolute inset-0 w-full h-full object-cover"
-                              style={{ objectPosition: archetype.imagePosition }}
-                            />
-                            {/* Dark overlay for text readability */}
-                            <div className={`absolute inset-0 transition-all ${
-                              isActive 
-                                ? 'bg-gradient-to-t from-black/80 via-black/40 to-black/20' 
-                                : 'bg-gradient-to-t from-black/70 via-black/30 to-black/10 hover:from-black/60'
-                            }`} />
-                            {/* Archetype name */}
-                            <div className="absolute inset-0 flex items-end justify-center pb-2">
-                              <span className={`text-sm font-bold uppercase tracking-widest drop-shadow-lg ${
-                                isActive ? 'text-amber-400' : 'text-white/90'
-                              }`}>
-                                {archetype.name}
-                              </span>
-                            </div>
-                          </button>
-                        );
-                      })}
                     </div>
                   </div>
                 </section>

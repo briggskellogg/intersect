@@ -173,13 +173,13 @@ export function ConversationHistory({
     <AnimatePresence>
       {isOpen && (
         <>
-          {/* Backdrop */}
+          {/* Backdrop - with rounded corners to match window */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-void/60 backdrop-blur-sm z-40"
+            className="fixed inset-0 bg-void/60 backdrop-blur-sm z-40 rounded-xl overflow-hidden"
           />
 
           {/* Floating Modal */}
@@ -349,13 +349,13 @@ export function ConversationHistory({
           <AnimatePresence>
             {deleteConfirmId && (
               <>
-                {/* Backdrop */}
+                {/* Backdrop - with rounded corners to match window */}
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
                   onClick={handleDeleteCancel}
-                  className="fixed inset-0 bg-void/80 backdrop-blur-sm z-[60]"
+                  className="fixed inset-0 bg-void/80 backdrop-blur-sm z-[60] rounded-xl overflow-hidden"
                 />
 
                 {/* Modal */}

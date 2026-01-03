@@ -1,8 +1,10 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
+use std::time::Duration;
 
 const OPENAI_API_URL: &str = "https://api.openai.com/v1/chat/completions";
+const REQUEST_TIMEOUT_SECS: u64 = 60; // 60 second timeout for API requests
 
 #[derive(Debug, Serialize, Clone)]
 pub struct ChatMessage {
@@ -40,8 +42,14 @@ pub struct OpenAIClient {
 
 impl OpenAIClient {
     pub fn new(api_key: &str) -> Self {
+        let client = Client::builder()
+            .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+            .connect_timeout(Duration::from_secs(10))
+            .build()
+            .expect("Failed to build HTTP client");
+        
         Self {
-            client: Client::new(),
+            client,
             api_key: api_key.to_string(),
         }
     }
