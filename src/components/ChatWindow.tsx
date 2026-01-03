@@ -19,7 +19,6 @@ import {
   recoverConversations,
   getConversationMessages,
   getRecentConversations,
-  getGovernorDiscoImage,
   getGovernorImage,
   InitResult,
   reopenConversation,
@@ -70,7 +69,6 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
   
   const [inputValue, setInputValue] = useState('');
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [governorDiscoIcon, setGovernorDiscoIcon] = useState<string | null>(null);
   const [governorIcon, setGovernorIcon] = useState<string | null>(null);
   const [governorNotification, setGovernorNotification] = useState<{
     message: string;
@@ -78,16 +76,8 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
     onAction?: () => void;
   } | null>(null);
 
-  // Load governor icons from desktop when component mounts
+  // Load governor icon from desktop when component mounts
   useEffect(() => {
-    getGovernorDiscoImage().then(image => {
-      if (image) {
-        setGovernorDiscoIcon(image);
-      }
-    }).catch(err => {
-      console.error('Failed to load disco governor image:', err);
-    });
-    
     getGovernorImage().then(image => {
       if (image) {
         setGovernorIcon(image);
@@ -178,23 +168,8 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
           
           setMessages(convertedMessages);
           
-          // Reopen with a new Governor greeting
-          setIsLoading(true);
-          setThinkingPhase('thinking');
-          setThinkingAgent('system');
-          
-          const opener = await reopenConversation(conv.id);
-          const openerMessage: Message = {
-            id: uuidv4(),
-            conversationId: conv.id,
-            role: 'governor',
-            content: opener.content,
-            responseType: 'primary',
-            timestamp: new Date(),
-          };
-          addMessage(openerMessage);
+          // Resume conversation without a new greeting - just pick up where we left off
           setIsLoading(false);
-          setThinkingAgent(null);
         } else {
           // No previous conversations, create a new one
           const conv = await createConversation(false);
@@ -1270,7 +1245,7 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
               {/* Icon container - use disco icon if in disco mode */}
               <div className="w-6 h-6 rounded-full overflow-hidden">
                 <img 
-                  src={isDiscoMode && governorDiscoIcon ? governorDiscoIcon : (governorIcon || defaultGovernorIcon)} 
+                  src={governorIcon || defaultGovernorIcon} 
                   alt="Governor" 
                   className="w-full h-full object-cover" 
                 />
@@ -1337,7 +1312,6 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
               key={message.id}
               message={message}
               isLatest={index === messages.length - 1}
-              governorDiscoIcon={governorDiscoIcon}
               governorIcon={governorIcon}
               isDiscoMode={isDiscoMode}
             />
@@ -1414,7 +1388,7 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
                   }}
                 />
                 <img 
-                  src={isDiscoMode && governorDiscoIcon ? governorDiscoIcon : (governorIcon || defaultGovernorIcon)} 
+                  src={governorIcon || defaultGovernorIcon} 
                   alt="You"
                   className="w-7 h-7 rounded-full relative z-10"
                 />

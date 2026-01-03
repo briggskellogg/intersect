@@ -59,15 +59,8 @@ function RadarChart({
     return 0.25 + normalized * 0.75; // Map to 0.25-1.0 range
   };
   
-  // Image sizes scale with weight
-  const minImageSize = 52;
-  const maxImageSize = 72;
-  
-  const getImageSize = (weight: number) => {
-    const clamped = Math.max(MIN_WEIGHT, Math.min(MAX_WEIGHT, weight));
-    const normalized = (clamped - MIN_WEIGHT) / (MAX_WEIGHT - MIN_WEIGHT);
-    return minImageSize + normalized * (maxImageSize - minImageSize);
-  };
+  // Fixed image size for all agents
+  const imageSize = 64;
   
   // Calculate points for each agent (3 points, 120 degrees apart)
   // Reoriented: Logic at top, Psyche bottom-left, Instinct bottom-right
@@ -200,21 +193,20 @@ function RadarChart({
       </svg>
       
       {/* Profile pictures at corners - size scales with weight, full colored */}
-      {agents.map(({ id, label, weight, hotkey }) => {
+      {agents.map(({ id, label, hotkey }) => {
         const typeLabels = { instinct: 'Instinct', logic: 'Logic', psyche: 'Psyche' };
-        const imgSize = getImageSize(weight);
         
         // Offset profile pictures upward from label point to avoid overlapping chart
         // Logic is at top (-90°), so needs more upward offset
-        const verticalOffset = id === 'logic' ? -imgSize * 0.8 : (id === 'psyche' || id === 'instinct' ? -imgSize * 0.3 : 0);
+        const verticalOffset = id === 'logic' ? -imageSize * 0.8 : (id === 'psyche' || id === 'instinct' ? -imageSize * 0.3 : 0);
         
         return (
           <div
             key={id}
             className="absolute flex flex-col items-center transition-all duration-300"
             style={{
-              left: `${label.x - imgSize / 2}px`,
-              top: `${label.y - imgSize / 2 + verticalOffset}px`,
+              left: `${label.x - imageSize / 2}px`,
+              top: `${label.y - imageSize / 2 + verticalOffset}px`,
             }}
           >
             <button
@@ -227,8 +219,8 @@ function RadarChart({
               <div
                 className="rounded-full overflow-visible transition-all duration-300 relative"
                 style={{
-                  width: imgSize,
-                  height: imgSize,
+                  width: imageSize,
+                  height: imageSize,
                 }}
               >
                 <img
@@ -651,7 +643,7 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
             <div className="flex items-center justify-between px-4 py-3 border-t border-smoke/30 flex-shrink-0">
               <div className="flex items-center gap-1.5">
                 <img src={governorTransparent} alt="" className="w-4 h-4 opacity-60" />
-                <p className="text-xs text-ash/60 font-mono">Intersect v1.1.0</p>
+                <p className="text-xs text-ash/60 font-mono">Intersect v1.1.1</p>
               </div>
               <div className="flex items-center gap-2">
                 {userProfile?.apiKey && (

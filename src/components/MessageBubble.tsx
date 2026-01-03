@@ -8,12 +8,11 @@ import { useAppStore } from '../store';
 interface MessageBubbleProps {
   message: Message;
   isLatest?: boolean;
-  governorDiscoIcon?: string | null;
   governorIcon?: string | null;
   isDiscoMode?: boolean;
 }
 
-export function MessageBubble({ message, isLatest: _isLatest, governorDiscoIcon, governorIcon, isDiscoMode = false }: MessageBubbleProps) {
+export function MessageBubble({ message, isLatest: _isLatest, governorIcon, isDiscoMode: _isDiscoMode = false }: MessageBubbleProps) {
   const { theme } = useAppStore();
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
@@ -24,11 +23,8 @@ export function MessageBubble({ message, isLatest: _isLatest, governorDiscoIcon,
   // Determine if we're in light mode
   const isLightMode = theme === 'light' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: light)').matches);
   
-  // Determine which governor avatar to use - check both message.isDisco and global isDiscoMode
-  const shouldUseDiscoAvatar = (isGovernor || isSystem) && (message.isDisco || isDiscoMode) && governorDiscoIcon;
-  const governorAvatar = shouldUseDiscoAvatar 
-    ? governorDiscoIcon 
-    : (governorIcon || GOVERNOR.avatar);
+  // Governor always uses normal avatar (disco mode doesn't affect governor)
+  const governorAvatar = governorIcon || GOVERNOR.avatar;
   
   const agent = isUser 
     ? null 
