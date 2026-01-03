@@ -665,7 +665,7 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                   
                   {/* Archetypes Section */}
                   <div className="mt-4">
-                    <p className="text-[10px] font-mono text-ash/50 uppercase tracking-wider mb-2">Quick Presets</p>
+                    <p className="text-[10px] font-mono text-ash/50 uppercase tracking-wider mb-2">Archetypes</p>
                     <div className="flex gap-2">
                       {(Object.keys(ARCHETYPES) as Array<keyof typeof ARCHETYPES>).map((key) => {
                         const archetype = ARCHETYPES[key];
@@ -701,26 +701,32 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                                 console.error('Failed to apply archetype:', err);
                               }
                             }}
-                            className={`flex-1 flex flex-col items-center gap-1.5 p-2 rounded-lg border transition-all cursor-pointer ${
+                            className={`flex-1 relative h-20 rounded-lg overflow-hidden border-2 transition-all cursor-pointer ${
                               isActive
-                                ? 'border-amber-500/60 bg-amber-500/10'
-                                : 'border-smoke/30 bg-smoke/5 hover:bg-smoke/10 hover:border-smoke/50'
+                                ? 'border-amber-500 shadow-lg shadow-amber-500/20'
+                                : 'border-transparent hover:border-smoke/50'
                             }`}
                           >
-                            <div className={`w-10 h-10 rounded-full overflow-hidden border-2 transition-all ${
-                              isActive ? 'border-amber-400' : 'border-smoke/40'
-                            }`}>
-                              <img 
-                                src={archetype.image} 
-                                alt={archetype.name}
-                                className="w-full h-full object-cover"
-                              />
+                            {/* Background image */}
+                            <img 
+                              src={archetype.image} 
+                              alt={archetype.name}
+                              className="absolute inset-0 w-full h-full object-cover"
+                            />
+                            {/* Dark overlay for text readability */}
+                            <div className={`absolute inset-0 transition-all ${
+                              isActive 
+                                ? 'bg-gradient-to-t from-black/80 via-black/40 to-black/20' 
+                                : 'bg-gradient-to-t from-black/70 via-black/30 to-black/10 hover:from-black/60'
+                            }`} />
+                            {/* Archetype name */}
+                            <div className="absolute inset-0 flex items-end justify-center pb-2">
+                              <span className={`text-sm font-bold uppercase tracking-widest drop-shadow-lg ${
+                                isActive ? 'text-amber-400' : 'text-white/90'
+                              }`}>
+                                {archetype.name}
+                              </span>
                             </div>
-                            <span className={`text-[9px] font-mono uppercase tracking-wider ${
-                              isActive ? 'text-amber-400' : 'text-ash/60'
-                            }`}>
-                              {archetype.name}
-                            </span>
                           </button>
                         );
                       })}
