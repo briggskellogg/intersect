@@ -145,7 +145,7 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
         const recentConvs = await getRecentConversations(1);
         
         if (recentConvs.length > 0) {
-          // Load the most recent conversation and reopen it
+          // Load the most recent conversation and reopen it with a greeting
           const conv = recentConvs[0];
           const loadedMessages = await getConversationMessages(conv.id);
           
@@ -168,8 +168,23 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
           
           setMessages(convertedMessages);
           
-          // Resume conversation without a new greeting - just pick up where we left off
+          // Get a "welcome back" greeting from Governor
+          setIsLoading(true);
+          setThinkingPhase('thinking');
+          setThinkingAgent('system');
+          
+          const opener = await reopenConversation(conv.id);
+          const openerMessage: Message = {
+            id: uuidv4(),
+            conversationId: conv.id,
+            role: 'governor',
+            content: opener.content,
+            responseType: 'primary',
+            timestamp: new Date(),
+          };
+          addMessage(openerMessage);
           setIsLoading(false);
+          setThinkingAgent(null);
         } else {
           // No previous conversations, create a new one
           const conv = await createConversation(false);
