@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { BotMessageSquare, ShieldCheck, X, Minus, Square, Mic, Sparkles, History, ExternalLink } from 'lucide-react';
+import { BotMessageSquare, ShieldCheck, X, Minus, Square, Mic, Sparkles, ExternalLink } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { ThemeToggle } from './ThemeToggle';
 import { ThoughtsContainer } from './ThoughtsContainer';
-import { ConversationHistory } from './ConversationHistory';
 import { useAppStore } from '../store';
 import { Message, AgentType, DebateMode } from '../types';
 import { AGENTS, DISCO_AGENTS, AGENT_ORDER } from '../constants/agents';
@@ -17,11 +16,8 @@ import {
   getUserProfile,
   finalizeConversation,
   recoverConversations,
-  getConversationMessages,
-  getRecentConversations,
   getGovernorImage,
   InitResult,
-  reopenConversation,
 } from '../hooks/useTauri';
 import { useScribeTranscription } from '../hooks/useScribeTranscription';
 import { v4 as uuidv4 } from 'uuid';
@@ -39,7 +35,6 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
   const {
     messages,
     addMessage,
-    setMessages,
     clearMessages,
     currentConversation,
     setCurrentConversation,
@@ -68,7 +63,6 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
   const { activePersonaProfile, elevenLabsApiKey, isSettingsOpen } = useAppStore();
   
   const [inputValue, setInputValue] = useState('');
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [governorIcon, setGovernorIcon] = useState<string | null>(null);
   const [governorNotification, setGovernorNotification] = useState<{
     message: string;
@@ -141,75 +135,29 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
       hasInitialized.current = true;
       
       try {
-        // Try to load the most recent conversation
-        const recentConvs = await getRecentConversations(1);
+        // Always start a new conversation on app launch
+        const conv = await createConversation(false);
+        setCurrentConversation(conv);
         
-        if (recentConvs.length > 0) {
-          // Load the most recent conversation and reopen it with a greeting
-          const conv = recentConvs[0];
-          const loadedMessages = await getConversationMessages(conv.id);
-          
-          setCurrentConversation(conv);
-          
-          // Convert agent messages to governor_thoughts format for display
-          const convertedMessages = loadedMessages.map(msg => {
-            if (msg.role === 'instinct' || msg.role === 'logic' || msg.role === 'psyche') {
-              const agentType = msg.role as AgentType;
-              const agentConfig = conv.isDisco ? DISCO_AGENTS[agentType] : AGENTS[agentType];
-              return {
-                ...msg,
-                role: 'governor_thoughts' as const,
-                agentName: agentConfig.name,
-                isDisco: conv.isDisco,
-              };
-            }
-            return msg;
-          });
-          
-          setMessages(convertedMessages);
-          
-          // Get a "welcome back" greeting from Governor
-          setIsLoading(true);
-          setThinkingPhase('thinking');
-          setThinkingAgent('system');
-          
-          const opener = await reopenConversation(conv.id);
-          const openerMessage: Message = {
-            id: uuidv4(),
-            conversationId: conv.id,
-            role: 'governor',
-            content: opener.content,
-            responseType: 'primary',
-            timestamp: new Date(),
-          };
-          addMessage(openerMessage);
-          setIsLoading(false);
-          setThinkingAgent(null);
-        } else {
-          // No previous conversations, create a new one
-          const conv = await createConversation(false);
-          setCurrentConversation(conv);
-          
-          // Governor is greeting the user
-          setIsLoading(true);
-          setThinkingPhase('thinking');
-          setThinkingAgent('system'); // Governor thinking
-          
-          // Get Governor greeting
-          const openerResult = await getConversationOpener();
-          
-          const openerMessage: Message = {
-            id: uuidv4(),
-            conversationId: conv.id,
-            role: 'governor', // Governor greets the user
-            content: openerResult.content,
-            responseType: 'primary',
-            timestamp: new Date(),
-          };
-          addMessage(openerMessage);
-          setIsLoading(false);
-          setThinkingAgent(null);
-        }
+        // Governor is greeting the user
+        setIsLoading(true);
+        setThinkingPhase('thinking');
+        setThinkingAgent('system');
+        
+        // Get Governor greeting
+        const openerResult = await getConversationOpener();
+        
+        const openerMessage: Message = {
+          id: uuidv4(),
+          conversationId: conv.id,
+          role: 'governor',
+          content: openerResult.content,
+          responseType: 'primary',
+          timestamp: new Date(),
+        };
+        addMessage(openerMessage);
+        setIsLoading(false);
+        setThinkingAgent(null);
       } catch (err) {
         console.error('Failed to init conversation:', err);
         setIsLoading(false);
@@ -399,10 +347,6 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
             e.preventDefault();
             handleNewConversation(); // New conversation
             break;
-          case 'h':
-            e.preventDefault();
-            setIsHistoryOpen(prev => !prev); // Toggle conversation history
-            break;
           case 'd':
             e.preventDefault();
             toggleDiscoMode(); // Toggle global disco mode
@@ -464,11 +408,6 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
         }
       }
       
-      // Escape key - close history drawer if open
-      if (e.key === 'Escape' && isHistoryOpen) {
-        e.preventDefault();
-        setIsHistoryOpen(false);
-      }
     };
     
     window.addEventListener('keydown', handleGlobalKeyDown);
@@ -860,139 +799,6 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
     }
   };
 
-  // Handle loading a conversation from history (always reopens with new greeting)
-  const handleLoadConversation = async (conversationId: string) => {
-    // Finalize the previous conversation before loading a new one
-    if (currentConversation && messages.length > 1) {
-      finalizeConversation(currentConversation.id).catch(err => 
-        console.error('Failed to finalize conversation:', err)
-      );
-    }
-    
-    setIsLoading(true);
-    clearMessages();
-    setDebateMode(null);
-    setThinkingPhase('thinking');
-    setThinkingAgent('system'); // Governor thinking
-    
-    try {
-      // Load conversation messages
-      const loadedMessages = await getConversationMessages(conversationId);
-      
-      // Find the conversation info
-      const convs = await getRecentConversations(100);
-      const conv = convs.find(c => c.id === conversationId);
-      
-      if (conv) {
-        setCurrentConversation(conv);
-        
-        // Convert agent messages to governor_thoughts format for display
-        const convertedMessages = loadedMessages.map(msg => {
-          // If message role is an agent type, convert to governor_thoughts
-          if (msg.role === 'instinct' || msg.role === 'logic' || msg.role === 'psyche') {
-            const agentType = msg.role as AgentType;
-            const agentConfig = conv.isDisco ? DISCO_AGENTS[agentType] : AGENTS[agentType];
-            return {
-              ...msg,
-              role: 'governor_thoughts' as const,
-              agentName: agentConfig.name,
-              isDisco: conv.isDisco,
-            };
-          }
-          return msg;
-        });
-        
-        setMessages(convertedMessages);
-        
-        // Always reopen with a new Governor greeting
-        const opener = await reopenConversation(conversationId);
-        const openerMessage: Message = {
-          id: uuidv4(),
-          conversationId: conv.id,
-          role: 'governor',
-          content: opener.content,
-          responseType: 'primary',
-          timestamp: new Date(),
-        };
-        addMessage(openerMessage);
-      } else {
-        // If conversation not found, create a new one
-        const newConv = await createConversation(false);
-        setCurrentConversation(newConv);
-      }
-    } catch (err) {
-      console.error('Failed to load conversation:', err);
-      setError('Failed to load conversation');
-    } finally {
-      setIsLoading(false);
-      setThinkingAgent(null);
-    }
-  };
-
-  // Handle reopening a conversation (with Governor greeting) - no animations
-  const handleReopenConversation = async (conversationId: string) => {
-    // Finalize the previous conversation before reopening
-    if (currentConversation && messages.length > 1) {
-      finalizeConversation(currentConversation.id).catch(err => 
-        console.error('Failed to finalize conversation:', err)
-      );
-    }
-    
-    clearMessages();
-    setDebateMode(null);
-    
-    try {
-      // Load conversation messages
-      const loadedMessages = await getConversationMessages(conversationId);
-      
-      // Find the conversation info
-      const convs = await getRecentConversations(100);
-      const conv = convs.find(c => c.id === conversationId);
-      
-      if (conv) {
-        setCurrentConversation(conv);
-        
-        // Convert agent messages to governor_thoughts format for display
-        const convertedMessages = loadedMessages.map(msg => {
-          if (msg.role === 'instinct' || msg.role === 'logic' || msg.role === 'psyche') {
-            const agentType = msg.role as AgentType;
-            const agentConfig = conv.isDisco ? DISCO_AGENTS[agentType] : AGENTS[agentType];
-            return {
-              ...msg,
-              role: 'governor_thoughts' as const,
-              agentName: agentConfig.name,
-              isDisco: conv.isDisco,
-            };
-          }
-          return msg;
-        });
-        
-        setMessages(convertedMessages);
-        
-        // Get the Governor's reopening greeting
-        const opener = await reopenConversation(conversationId);
-        
-        // Add the Governor's reopening greeting (no animation)
-        const openerMessage: Message = {
-          id: uuidv4(),
-          conversationId: conv.id,
-          role: 'governor',
-          content: opener.content,
-          responseType: 'primary',
-          timestamp: new Date(),
-        };
-        addMessage(openerMessage);
-      } else {
-        // If conversation not found, create a new one
-        const newConv = await createConversation(false);
-        setCurrentConversation(newConv);
-      }
-    } catch (err) {
-      console.error('Failed to reopen conversation:', err);
-      setError('Failed to reopen conversation');
-    }
-  };
-
   // Subtle linear gradient based on inverted weights (like star chart)
   const getBackgroundStyle = () => {
     if (!userProfile) {
@@ -1076,16 +882,6 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
             </button>
           </div>
 
-          {/* Conversation history button */}
-          <button
-            onClick={() => setIsHistoryOpen(true)}
-            className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-ash/60 hover:text-pearl hover:bg-smoke/20 transition-all cursor-pointer"
-            title="Conversation history (⌘H)"
-          >
-            <History className="w-4 h-4" strokeWidth={1.5} />
-            <kbd className="text-[8px] font-mono text-ash/40">⌘H</kbd>
-          </button>
-          
           {/* New conversation button */}
           <button
             onClick={() => handleNewConversation()}
@@ -1342,15 +1138,6 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
 
         <div ref={messagesEndRef} />
       </div>
-
-      {/* Conversation History Drawer */}
-      <ConversationHistory
-        isOpen={isHistoryOpen}
-        onClose={() => setIsHistoryOpen(false)}
-        currentConversationId={currentConversation?.id || null}
-        onSelectConversation={handleLoadConversation}
-        onReopenConversation={handleReopenConversation}
-      />
 
       {/* Floating Input */}
       <div className="absolute bottom-3 left-1/2 -translate-x-1/2 w-3/4 max-w-5xl">

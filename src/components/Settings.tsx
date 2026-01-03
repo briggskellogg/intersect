@@ -20,6 +20,36 @@ const PROFILE_IMAGES = {
   psyche: psycheProfile,
 } as const;
 
+// Archetype images
+import thinkerImage from '../assets/archetypes/thinker.jpg';
+import sensitiveImage from '../assets/archetypes/sensitive.jpg';
+import bruteImage from '../assets/archetypes/brute.jpg';
+
+// Archetypes with preset point allocations
+const ARCHETYPES = {
+  thinker: {
+    name: 'Thinker',
+    dominant: 'logic' as const,
+    points: { logic: 6, instinct: 4, psyche: 2 },
+    image: thinkerImage,
+    description: 'Logic-driven analysis',
+  },
+  sensitive: {
+    name: 'Sensitive',
+    dominant: 'psyche' as const,
+    points: { logic: 3, instinct: 4, psyche: 5 },
+    image: sensitiveImage,
+    description: 'Emotionally attuned',
+  },
+  brute: {
+    name: 'Brute',
+    dominant: 'instinct' as const,
+    points: { logic: 2, instinct: 7, psyche: 3 },
+    image: bruteImage,
+    description: 'Gut-driven action',
+  },
+} as const;
+
 interface SettingsProps {
   isOpen: boolean;
   onClose: () => void;
@@ -314,13 +344,13 @@ function RadarChart({
                       onPointChange(id, +1);
                     }}
                     disabled={
-                      localPoints[id] >= 6 || 
-                      ((localPoints.instinct + localPoints.logic + localPoints.psyche) >= 11 &&
+                      localPoints[id] >= 7 || 
+                      ((localPoints.instinct + localPoints.logic + localPoints.psyche) >= 12 &&
                       !(['instinct', 'logic', 'psyche'] as const).some(t => t !== id && localPoints[t] > 2))
                     }
                     className={`w-5 h-5 rounded border flex items-center justify-center transition-all font-mono text-[10px] ${
-                      localPoints[id] < 6 && (
-                        (localPoints.instinct + localPoints.logic + localPoints.psyche) < 11 ||
+                      localPoints[id] < 7 && (
+                        (localPoints.instinct + localPoints.logic + localPoints.psyche) < 12 ||
                         (['instinct', 'logic', 'psyche'] as const).some(t => t !== id && localPoints[t] > 2)
                       )
                         ? 'border-ash/50 hover:border-ash/70 hover:bg-smoke/30 cursor-pointer active:scale-95'
@@ -328,8 +358,8 @@ function RadarChart({
                     }`}
                     style={{
                       borderColor: (
-                        localPoints[id] < 6 && (
-                          (localPoints.instinct + localPoints.logic + localPoints.psyche) < 11 ||
+                        localPoints[id] < 7 && (
+                          (localPoints.instinct + localPoints.logic + localPoints.psyche) < 12 ||
                           (['instinct', 'logic', 'psyche'] as const).some(t => t !== id && localPoints[t] > 2)
                         )
                       ) ? `${AGENTS[id].color}50` : undefined,
@@ -364,9 +394,9 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
     setActivePersonaProfile,
   } = useAppStore();
   const [showApiModal, setShowApiModal] = useState(false);
-  // Convert weights to points (11 total, each 2-6)
-  const weightsToPoints = (weight: number) => Math.round(weight * 11);
-  const pointsToWeight = (points: number) => points / 11;
+  // Convert weights to points (12 total, each 2-7)
+  const weightsToPoints = (weight: number) => Math.round(weight * 12);
+  const pointsToWeight = (points: number) => points / 12;
   
   const [localPoints, setLocalPoints] = useState({
     instinct: weightsToPoints(userProfile?.instinctWeight ?? 0.3),
@@ -441,16 +471,16 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
     const currentTotal = localPoints.instinct + localPoints.logic + localPoints.psyche;
     const newValue = newPoints[trait] + delta;
     
-    // Enforce constraints: min 2, max 6
-    if (newValue < 2 || newValue > 6) return;
+    // Enforce constraints: min 2, max 7
+    if (newValue < 2 || newValue > 7) return;
     
     // Calculate new total
     const newTotal = currentTotal + delta;
     
-    // Only prevent increases if total would exceed 11 (no automatic reallocation)
+    // Only prevent increases if total would exceed 12 (no automatic reallocation)
     // Allow decreases freely (no automatic reallocation)
-    if (delta > 0 && newTotal > 11) {
-      // Can't increase if it would exceed 11 total
+    if (delta > 0 && newTotal > 12) {
+      // Can't increase if it would exceed 12 total
       return;
     }
     
@@ -570,7 +600,7 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                       <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-smoke/30 bg-obsidian/90 backdrop-blur-sm">
                         <span 
                           className={`text-xs font-bold tabular-nums ${
-                            localPoints.instinct + localPoints.logic + localPoints.psyche === 11
+                            localPoints.instinct + localPoints.logic + localPoints.psyche === 12
                               ? 'text-emerald-400'
                               : 'text-amber-400'
                           }`}
@@ -579,7 +609,7 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                           {localPoints.instinct + localPoints.logic + localPoints.psyche}
                         </span>
                         <span className="text-[10px] font-mono text-ash/40">
-                          / 11
+                          / 12
                         </span>
                       </div>
                     </div>
@@ -630,6 +660,70 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                         selectedDominantTrait={selectedDominantTrait}
                         onDominantTraitSelect={setSelectedDominantTrait}
                       />
+                    </div>
+                  </div>
+                  
+                  {/* Archetypes Section */}
+                  <div className="mt-4">
+                    <p className="text-[10px] font-mono text-ash/50 uppercase tracking-wider mb-2">Quick Presets</p>
+                    <div className="flex gap-2">
+                      {(Object.keys(ARCHETYPES) as Array<keyof typeof ARCHETYPES>).map((key) => {
+                        const archetype = ARCHETYPES[key];
+                        const isActive = 
+                          localPoints.logic === archetype.points.logic &&
+                          localPoints.instinct === archetype.points.instinct &&
+                          localPoints.psyche === archetype.points.psyche &&
+                          selectedDominantTrait === archetype.dominant;
+                        
+                        return (
+                          <button
+                            key={key}
+                            onClick={async () => {
+                              // Set points
+                              setLocalPoints(archetype.points);
+                              // Set dominant trait
+                              setSelectedDominantTrait(archetype.dominant);
+                              // Save to backend
+                              try {
+                                await updatePoints(
+                                  archetype.points.instinct,
+                                  archetype.points.logic,
+                                  archetype.points.psyche
+                                );
+                                // Refresh profiles
+                                const updatedProfile = await getUserProfile();
+                                setUserProfile(updatedProfile);
+                                const activePersona = await getActivePersonaProfile();
+                                if (activePersona) {
+                                  setActivePersonaProfile(activePersona);
+                                }
+                              } catch (err) {
+                                console.error('Failed to apply archetype:', err);
+                              }
+                            }}
+                            className={`flex-1 flex flex-col items-center gap-1.5 p-2 rounded-lg border transition-all cursor-pointer ${
+                              isActive
+                                ? 'border-amber-500/60 bg-amber-500/10'
+                                : 'border-smoke/30 bg-smoke/5 hover:bg-smoke/10 hover:border-smoke/50'
+                            }`}
+                          >
+                            <div className={`w-10 h-10 rounded-full overflow-hidden border-2 transition-all ${
+                              isActive ? 'border-amber-400' : 'border-smoke/40'
+                            }`}>
+                              <img 
+                                src={archetype.image} 
+                                alt={archetype.name}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                            <span className={`text-[9px] font-mono uppercase tracking-wider ${
+                              isActive ? 'text-amber-400' : 'text-ash/60'
+                            }`}>
+                              {archetype.name}
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 </section>
