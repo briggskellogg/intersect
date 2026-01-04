@@ -11,7 +11,7 @@ import { WaveformVisualizer } from './WaveformVisualizer';
 import { ImmersiveSettings } from './ImmersiveSettings';
 import { DISCO_AGENTS } from '../constants/agents'; // Voice mode always uses disco agents
 import { VoiceChanger, ClipboardCopy, ClipboardCheck } from './icons';
-import { Message, AgentType } from '../types';
+import { AgentType } from '../types';
 
 // Import thinking audio
 import thinkingAudioSrc from '../assets/governor-thinking.mp3';
@@ -89,16 +89,13 @@ export function ImmersiveMode() {
     immersiveTurn,
     setImmersiveTurn,
     userProfile,
-    currentConversation,
-    setCurrentConversation,
-    messages,
-    addMessage,
-    clearMessages,
     setLastImmersiveConversationId,
-    setLastImmersiveMessages,
     backgroundMusic,
     backgroundMusicVolume,
   } = useAppStore();
+  
+  // Game Mode has its own conversation ID - completely separate from Text Mode
+  const [gameModeConversationId, setGameModeConversationId] = useState<string | null>(null);
   
   // Background music player with shuffle and crossfade - auto-plays when tracks exist
   useBackgroundMusic({
@@ -225,28 +222,19 @@ export function ImmersiveMode() {
     };
     setDialogHistory(prev => [...prev, userEntry]);
 
-    if (currentConversation) {
-      const userMessage: Message = {
-        id: uuidv4(),
-        conversationId: currentConversation.id,
-        role: 'user',
-        content: cleanedText,
-        timestamp: new Date(),
-      };
-      addMessage(userMessage);
-    }
+    // Game Mode doesn't add to shared message store - uses its own dialogHistory
 
     setIsThinking(true);
     startThinkingAudio();
 
     try {
-      if (!currentConversation) {
-        setError('No active conversation');
+      if (!gameModeConversationId) {
+        setError('No active Game Mode conversation');
         return;
       }
       // Game mode: all agents are in disco mode (pass same array for both activeAgents and discoAgents)
       const gameAgents: AgentType[] = ['instinct', 'logic', 'psyche'];
-      const result = await sendMessageToBackend(currentConversation.id, cleanedText, gameAgents, gameAgents);
+      const result = await sendMessageToBackend(gameModeConversationId, cleanedText, gameAgents, gameAgents);
 
       const agentThoughts: ThoughtState[] = result.responses.map((resp: { agent: string; content: string }, idx: number) => ({
         id: uuidv4(),
@@ -256,22 +244,8 @@ export function ImmersiveMode() {
         isComplete: false,
       }));
 
-      // Add agent thoughts to message store so they appear in main chat
-      if (currentConversation) {
-        agentThoughts.forEach((thought) => {
-          const agent = DISCO_AGENTS[thought.agentType]; // Voice mode always uses disco agents
-          const thoughtMessage: Message = {
-            id: thought.id,
-            conversationId: currentConversation.id,
-            role: 'governor_thoughts',
-            content: thought.content,
-            timestamp: new Date(),
-            isDisco: true, // Voice mode is always disco
-            agentName: agent?.name || thought.agentType,
-          };
-          addMessage(thoughtMessage);
-        });
-      }
+      // Game Mode uses dialogHistory, not the shared message store
+      // Agent thoughts are added to dialogHistory later when processed
 
       setCurrentThoughts(agentThoughts);
       setIsThinking(false);
@@ -503,16 +477,7 @@ export function ImmersiveMode() {
           safeFinishGovernorTurn();
         }
 
-        if (currentConversation) {
-          const govMessage: Message = {
-            id: uuidv4(),
-            conversationId: currentConversation.id,
-            role: 'governor',
-            content: governorResponse,
-            timestamp: new Date(),
-          };
-          addMessage(govMessage);
-        }
+        // Game Mode doesn't add to shared message store - dialogHistory tracks all messages
       } else {
         setImmersiveTurn('user');
         setCurrentThoughts([]);
@@ -529,7 +494,7 @@ export function ImmersiveMode() {
       setImmersiveTurn('user');
       setIsListening(true);
     }
-  }, [currentConversation, scribe, tts, addMessage, elevenLabsApiKey, immersiveVoices, setImmersiveTurn, getThoughtVoiceId]);
+  }, [gameModeConversationId, scribe, tts, elevenLabsApiKey, immersiveVoices, setImmersiveTurn, getThoughtVoiceId]);
 
   const submitDetection = useSubmitDetection({
     apiKey: userProfile?.apiKey || null,
@@ -630,38 +595,27 @@ export function ImmersiveMode() {
       }
       hasInitializedRef.current = true;
       
-      // Reset state for fresh session
+      // Reset state for fresh Game Mode session (don't touch Text Mode state)
       setImmersiveTurn('ai');
       setCurrentThoughts([]);
       setIsThinking(true);
       setError(null);
       setIsListening(false);
       setCurrentTranscript('');
-      setDialogHistory([]); // Clear history for fresh session
-      clearMessages();
+      setDialogHistory([]); // Clear Game Mode history for fresh session
       
-      // Create new conversation and get opener
+      // Create new Game Mode conversation (separate from Text Mode)
       const initImmersive = async () => {
         try {
-          // Create a fresh conversation
-          const newConversation = await createConversation(false);
-          setCurrentConversation(newConversation);
+          // Create a fresh conversation just for Game Mode
+          const newConversation = await createConversation(true); // isDisco = true for Game Mode
+          setGameModeConversationId(newConversation.id);
           setLastImmersiveConversationId(newConversation.id);
           
           // Get the Governor's opener (atmospheric greeting for voice mode)
           const openerResult = await getConversationOpener(true);
           
           if (openerResult?.content) {
-            // Add opener as a message
-            const openerMessage: Message = {
-              id: uuidv4(),
-              conversationId: newConversation.id,
-              role: 'governor',
-              content: openerResult.content,
-              timestamp: new Date(),
-            };
-            addMessage(openerMessage);
-            
             setIsThinking(false);
             setCurrentGovernorText(openerResult.content);
             
@@ -733,11 +687,8 @@ export function ImmersiveMode() {
       }
     }
 
-    // Cleanup on exit - save messages for export
+    // Cleanup on exit
     return () => {
-      if (isImmersiveMode && messages.length > 0) {
-        setLastImmersiveMessages([...messages]);
-      }
       scribe.stop();
       tts.clearQueue();
       stopThinkingAudio();
