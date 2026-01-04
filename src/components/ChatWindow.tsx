@@ -1164,7 +1164,7 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
             title="Copy conversation to clipboard (⌘C)"
           >
             {copied ? <ClipboardCheck size={16} /> : <ClipboardCopy size={16} />}
-            <kbd className="px-1.5 py-0.5 rounded-md text-ash/50 font-mono text-[10px]">⌘C</kbd>
+            <kbd className="p-1 bg-smoke/30 rounded text-[10px] font-mono text-ash/60 border border-smoke/40 leading-none">⌘C</kbd>
           </button>
           
           {/* Input container with transcript overlay above */}
@@ -1302,7 +1302,7 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
                 />
               )}
             </div>
-            <kbd className="px-1.5 py-0.5 rounded-md text-ash/50 font-mono text-[10px]">⌘S</kbd>
+            <kbd className="p-1 bg-smoke/30 rounded text-[10px] font-mono text-ash/60 border border-smoke/40 leading-none">⌘S</kbd>
           </button>
         </div>
         
