@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { v4 as uuidv4 } from 'uuid';
 import { useAppStore } from '../store';
-import { sendMessage as sendMessageToBackend, createConversation, getConversationOpener } from '../hooks/useTauri';
+import { sendMessage as sendMessageToBackend, createConversation, getConversationOpener, getActivePersonaProfile } from '../hooks/useTauri';
 import { useBackgroundMusic } from '../hooks/useBackgroundMusic';
 import { useScribeTranscription } from '../hooks/useScribeTranscription';
 import { useElevenLabsTTS } from '../hooks/useElevenLabsTTS';
@@ -90,6 +90,7 @@ export function ImmersiveMode() {
     setImmersiveTurn,
     userProfile,
     activePersonaProfile,
+    setActivePersonaProfile,
     setLastImmersiveConversationId,
     backgroundMusic,
     backgroundMusicVolume,
@@ -521,6 +522,16 @@ export function ImmersiveMode() {
           scribe.start().catch(console.error);
         }
       }
+      
+      // Refresh persona profile to update message count
+      try {
+        const updatedPersona = await getActivePersonaProfile();
+        if (updatedPersona) {
+          setActivePersonaProfile(updatedPersona);
+        }
+      } catch (profileErr) {
+        console.error('Failed to refresh persona profile:', profileErr);
+      }
     } catch (err) {
       console.error('Send message error:', err);
       setError(err instanceof Error ? err.message : 'Failed to send message');
@@ -529,7 +540,7 @@ export function ImmersiveMode() {
       setImmersiveTurn('user');
       setIsListening(true);
     }
-  }, [gameModeConversationId, scribe, tts, elevenLabsApiKey, immersiveVoices, setImmersiveTurn, getThoughtVoiceId]);
+  }, [gameModeConversationId, scribe, tts, elevenLabsApiKey, immersiveVoices, setImmersiveTurn, getThoughtVoiceId, setActivePersonaProfile]);
 
   const submitDetection = useSubmitDetection({
     apiKey: userProfile?.apiKey || null,
@@ -967,7 +978,7 @@ export function ImmersiveMode() {
             </div>
             {/* Single green active dot */}
             <motion.div
-              className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-slate-800 z-10"
+              className="absolute bottom-0 right-0 w-2 h-2 rounded-full border border-slate-800 z-10"
               style={{ backgroundColor: '#22C55E' }}
               animate={{ opacity: [0.7, 1, 0.7] }}
               transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}

@@ -14,6 +14,7 @@ import {
   createConversation, 
   getConversationOpener,
   getUserProfile,
+  getActivePersonaProfile,
   finalizeConversation,
   recoverConversations,
   getGovernorImage,
@@ -58,7 +59,7 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
   // Count active agents for Governor logic
   const activeCount = Object.values(agentModes).filter(m => m === 'on').length;
   
-  const { activePersonaProfile, elevenLabsApiKey, isSettingsOpen, isImmersiveMode, setImmersiveMode } = useAppStore();
+  const { activePersonaProfile, setActivePersonaProfile, elevenLabsApiKey, isSettingsOpen, isImmersiveMode, setImmersiveMode } = useAppStore();
   
   const [inputValue, setInputValue] = useState('');
   const [governorIcon, setGovernorIcon] = useState<string | null>(null);
@@ -599,10 +600,16 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
       
       // Weight change notifications removed - only show technical errors
       
-      // Refresh user profile to update weights and message count in UI
+      // Refresh user profile and persona profile to update weights and message count in UI
       try {
         const updatedProfile = await getUserProfile();
         setUserProfile(updatedProfile);
+        
+        // Also refresh active persona profile to update message count display
+        const updatedPersona = await getActivePersonaProfile();
+        if (updatedPersona) {
+          setActivePersonaProfile(updatedPersona);
+        }
       } catch (profileErr) {
         console.error('Failed to refresh profile:', profileErr);
       }
@@ -770,9 +777,16 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
       
       // Weight change notifications removed - only show technical errors
 
+      // Refresh user profile and persona profile to update weights and message count in UI
       try {
         const updatedProfile = await getUserProfile();
         setUserProfile(updatedProfile);
+        
+        // Also refresh active persona profile to update message count display
+        const updatedPersona = await getActivePersonaProfile();
+        if (updatedPersona) {
+          setActivePersonaProfile(updatedPersona);
+        }
       } catch (profileErr) {
         console.error('Failed to refresh profile:', profileErr);
       }
@@ -1015,7 +1029,7 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
             </div>
             {/* Single green active dot */}
             <motion.div
-              className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-charcoal z-10"
+              className="absolute bottom-0 right-0 w-2 h-2 rounded-full border border-charcoal z-10"
               style={{ backgroundColor: '#22C55E' }}
               animate={{ opacity: [0.7, 1, 0.7] }}
               transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
