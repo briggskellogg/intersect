@@ -940,8 +940,8 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
             <div className="relative group/text">
               <button
                 onClick={() => handleNewConversation()}
-                className="group flex items-center gap-1 px-1.5 py-1 rounded-full transition-all cursor-pointer hover:bg-fuchsia-500/20"
-                style={{ color: '#E040FB' }}
+                className="group flex items-center gap-1 px-1.5 py-1 rounded-full transition-all cursor-pointer hover:bg-cyan-500/20"
+                style={{ color: '#00D4FF' }}
                 title="New conversation (⌘N)"
               >
                 <BotMessageSquare className="w-3.5 h-3.5 opacity-70 group-hover:opacity-100 transition-opacity" strokeWidth={1.5} />
@@ -951,11 +951,11 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
               {/* Text Mode hover tooltip */}
               <div 
                 className="absolute top-full mt-2 left-0 px-3 py-2 bg-obsidian/95 border rounded-lg opacity-0 invisible group-hover/text:opacity-100 group-hover/text:visible transition-all shadow-xl w-[280px] z-50 pointer-events-auto"
-                style={{ borderColor: 'rgba(224, 64, 251, 0.4)' }}
+                style={{ borderColor: 'rgba(0, 212, 255, 0.4)' }}
               >
                 <div className="flex items-center gap-2 mb-1.5">
-                  <BotMessageSquare size={12} className="text-fuchsia-400" strokeWidth={1.5} />
-                  <span className="text-xs font-sans font-medium text-fuchsia-300">TEXT MODE</span>
+                  <BotMessageSquare size={12} className="text-cyan-400" strokeWidth={1.5} />
+                  <span className="text-xs font-sans font-medium text-cyan-300">TEXT MODE</span>
                   <kbd className="px-1.5 py-0.5 bg-smoke/30 rounded border border-smoke/40 text-[8px] font-mono text-ash/60">⌘N</kbd>
                 </div>
                 <p className="text-[10px] text-ash/80 font-mono leading-relaxed">
@@ -969,8 +969,8 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
             <div className="relative group/voice">
               <button
                 onClick={() => setImmersiveMode(true)}
-                className="group flex items-center gap-1 px-1.5 py-1 rounded-full transition-all cursor-pointer hover:bg-amber-500/20"
-                style={{ color: '#EAB308' }}
+                className="group flex items-center gap-1 px-1.5 py-1 rounded-full transition-all cursor-pointer hover:bg-red-500/20"
+                style={{ color: '#EF4444' }}
                 title="Game Mode (⌘G)"
               >
                 <GameModeIcon size={13} className="opacity-70 group-hover:opacity-100 transition-opacity" />
@@ -980,11 +980,11 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
               {/* Hover tooltip */}
               <div 
                 className="absolute top-full mt-2 left-0 px-3 py-2 bg-obsidian/95 border rounded-lg opacity-0 invisible group-hover/voice:opacity-100 group-hover/voice:visible transition-all shadow-xl w-[280px] z-50 pointer-events-auto"
-                style={{ borderColor: 'rgba(234, 179, 8, 0.4)' }}
+                style={{ borderColor: 'rgba(239, 68, 68, 0.4)' }}
               >
                 <div className="flex items-center gap-2 mb-1.5">
-                  <GameModeIcon size={12} className="text-amber-400" />
-                  <span className="text-xs font-sans font-medium text-amber-300">GAME MODE</span>
+                  <GameModeIcon size={12} className="text-red-400" />
+                  <span className="text-xs font-sans font-medium text-red-300">GAME MODE</span>
                   <kbd className="px-1.5 py-0.5 bg-smoke/30 rounded border border-smoke/40 text-[8px] font-mono text-ash/60">⌘G</kbd>
                 </div>
                 <p className="text-[10px] text-ash/80 font-mono leading-relaxed">

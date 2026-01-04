@@ -27,12 +27,12 @@ interface ThoughtState {
   isComplete: boolean;
 }
 
-// Voice mode always uses disco colors
+// Voice mode always uses disco colors - red theme
 const DISCO_COLORS = {
-  primary: '#EAB308',  // Yellow/gold
-  secondary: '#EAB308', 
-  accent: '#F59E0B',
-  glow: '#EAB308',
+  primary: '#EF4444',  // Red
+  secondary: '#EF4444', 
+  accent: '#DC2626',
+  glow: '#EF4444',
 };
 
 // Typewriter text component for thoughts
@@ -920,26 +920,34 @@ export function ImmersiveMode() {
 
         {/* Header controls - boxed shortcuts */}
         <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
-          <button
-            onClick={() => setIsSettingsOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-slate-800/60 border border-slate-700/50 text-slate-400 hover:text-slate-200 hover:bg-slate-700/60 hover:border-slate-600/50 transition-all text-[11px] font-sans tracking-wide"
-            title="Voice Settings (⌘V)"
-          >
-            <VoiceChanger size={14} className="flex-shrink-0" />
-            <span>⌘V</span>
-          </button>
-          <button
-            onClick={handleExitRequest}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-slate-800/60 border border-slate-700/50 text-slate-400 hover:text-slate-200 hover:bg-slate-700/60 hover:border-slate-600/50 transition-all text-[11px] font-sans tracking-wide"
-            title="Exit (⌘ESC)"
-          >
-            ⌘ESC
-          </button>
+          <div className="relative group/voice">
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-slate-400 hover:bg-slate-800/60 transition-all"
+              title="Voice Settings (⌘V)"
+            >
+              <VoiceChanger size={14} className="shrink-0 opacity-70 group-hover/voice:opacity-100 transition-opacity" />
+              <kbd className="p-1 bg-slate-800/60 rounded text-[10px] font-mono text-slate-400 border border-slate-700/50 leading-none">⌘V</kbd>
+            </button>
+            {/* Hover box */}
+            <div className="absolute top-0 left-0 right-0 bottom-0 rounded-lg bg-slate-800/60 border border-slate-600/50 opacity-0 group-hover/voice:opacity-100 transition-all -z-10" />
+          </div>
+          <div className="relative group/exit">
+            <button
+              onClick={handleExitRequest}
+              className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-slate-400 hover:bg-slate-800/60 transition-all"
+              title="Exit (⌘ESC)"
+            >
+              <kbd className="p-1 bg-slate-800/60 rounded text-[10px] font-mono text-slate-400 border border-slate-700/50 leading-none">⌘ESC</kbd>
+            </button>
+            {/* Hover box */}
+            <div className="absolute top-0 left-0 right-0 bottom-0 rounded-lg bg-slate-800/60 border border-slate-600/50 opacity-0 group-hover/exit:opacity-100 transition-all -z-10" />
+          </div>
         </div>
 
         {/* Agent avatars - top left (always disco agents in voice mode) */}
         <div className="absolute top-4 left-4 z-30 flex items-center gap-3">
-          <div className="relative flex items-center bg-slate-800/60 rounded-full px-2 py-1.5 border border-amber-500/30">
+          <div className="relative flex items-center bg-slate-800/60 rounded-full px-2 py-1.5 border border-red-500/30">
             <div className="flex -space-x-2">
               {(['psyche', 'logic', 'instinct'] as const).map((agentId) => {
                 const agentConfig = DISCO_AGENTS[agentId]; // Voice mode always uses disco agents
@@ -1219,7 +1227,7 @@ export function ImmersiveMode() {
                 <motion.div 
                   className="w-full rounded-xl bg-slate-900/70 backdrop-blur-md border border-slate-700/30 shadow-2xl overflow-hidden"
                   animate={{ 
-                    borderColor: ['rgba(100, 116, 139, 0.3)', 'rgba(251, 191, 36, 0.3)', 'rgba(100, 116, 139, 0.3)']
+                    borderColor: ['rgba(100, 116, 139, 0.3)', 'rgba(239, 68, 68, 0.3)', 'rgba(100, 116, 139, 0.3)']
                   }}
                   transition={{ 
                     repeat: Infinity, 
@@ -1232,7 +1240,7 @@ export function ImmersiveMode() {
                     <img
                       src={userAvatar}
                       alt="You"
-                      className="w-10 h-10 rounded-full object-cover ring-2 ring-amber-400/40 shrink-0"
+                      className="w-10 h-10 rounded-full object-cover ring-2 ring-red-400/40 shrink-0"
                     />
                     {/* Text area */}
                     <div className="flex-1 min-h-[40px] flex items-center">
@@ -1395,10 +1403,10 @@ export function ImmersiveMode() {
                       setShowExitConfirm(false);
                       setImmersiveMode(false);
                     }}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-300 hover:bg-amber-500/30 transition-all text-[10px] font-sans font-medium"
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-red-500/20 border border-red-500/30 text-red-300 hover:bg-red-500/30 transition-all text-[10px] font-sans font-medium"
                   >
                     Exit
-                    <kbd className="px-1 py-0.5 rounded bg-charcoal/50 text-[8px] text-amber-400/50 border border-amber-500/20">↵ ENT</kbd>
+                    <kbd className="px-1 py-0.5 rounded bg-charcoal/50 text-[8px] text-red-400/50 border border-red-500/20">↵ ENT</kbd>
                   </button>
                 </div>
               </motion.div>
