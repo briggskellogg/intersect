@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { User } from 'lucide-react';
+import { User } from './icons';
 import { useAppStore } from '../store';
 import { 
   getAllPersonaProfiles, 
@@ -55,12 +55,12 @@ export function ProfileSwitcher({ onOpenProfileModal }: ProfileSwitcherProps) {
     >
       <User className="w-4 h-4" strokeWidth={1.5} />
       <span 
-        className="text-xs font-mono max-w-[100px] truncate"
+        className="text-xs font-sans max-w-[100px] truncate"
         style={{ color: getTraitColor(activePersonaProfile.dominantTrait) }}
       >
         {activePersonaProfile.name}
       </span>
-      <kbd className="p-1 bg-smoke/30 rounded text-[10px] font-mono text-ash/60 border border-smoke/40 leading-none aspect-square flex items-center justify-center">⌘P</kbd>
+      <kbd className="p-1 bg-smoke/30 rounded text-[10px] font-sans text-ash/60 border border-smoke/40 leading-none aspect-square flex items-center justify-center">⌘P</kbd>
     </button>
   );
 }

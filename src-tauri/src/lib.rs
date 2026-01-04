@@ -324,6 +324,11 @@ fn update_persona_profile_name(profile_id: String, new_name: String) -> Result<(
 }
 
 #[tauri::command]
+fn update_dominant_trait(dominant_trait: String) -> Result<(), String> {
+    db::update_dominant_trait(&dominant_trait).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn delete_persona_profile(profile_id: String) -> Result<(), String> {
     db::delete_persona_profile(&profile_id).map_err(|e| e.to_string())
 }
@@ -382,7 +387,7 @@ pub struct ConversationOpenerResult {
 }
 
 #[tauri::command]
-async fn get_conversation_opener() -> Result<ConversationOpenerResult, String> {
+async fn get_conversation_opener(is_voice_mode: Option<bool>) -> Result<ConversationOpenerResult, String> {
     let profile = db::get_user_profile().map_err(|e| e.to_string())?;
     let anthropic_key = profile.anthropic_key.ok_or("Anthropic API key not set")?;
     
@@ -392,7 +397,7 @@ async fn get_conversation_opener() -> Result<ConversationOpenerResult, String> {
     
     // The dominant agent greets the user (using Anthropic/Claude)
     // No past conversation context - each new conversation starts fresh
-    let content = generate_governor_greeting(&anthropic_key, &active_trait)
+    let content = generate_governor_greeting(&anthropic_key, &active_trait, is_voice_mode.unwrap_or(false))
         .await
         .map_err(|e| e.to_string())?;
     
@@ -402,7 +407,8 @@ async fn get_conversation_opener() -> Result<ConversationOpenerResult, String> {
 
 /// Generate a brief Governor greeting for a new conversation using knowledge base
 /// Each new conversation starts with a fresh context window - no past conversation references
-async fn generate_governor_greeting(anthropic_key: &str, active_trait: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+/// In voice mode, the greeting is more atmospheric and evocative to set the mood
+async fn generate_governor_greeting(anthropic_key: &str, active_trait: &str, is_voice_mode: bool) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     use crate::anthropic::{AnthropicClient, AnthropicMessage, ThinkingBudget, CLAUDE_HAIKU};
     use chrono::{Local, Timelike};
     
@@ -466,15 +472,65 @@ async fn generate_governor_greeting(anthropic_key: &str, active_trait: &str) -> 
     
     let full_context = context_parts.join("\n\n");
     
-    // ===== SIMPLIFIED SYSTEM PROMPT =====
-    let agent_name = match active_trait {
-        "instinct" => "Snap",
-        "logic" => "Dot",
-        "psyche" => "Puff",
-        _ => "Dot"
-    };
-    
-    let system_prompt = format!(r#"You are {agent_name}, greeting the user at the start of a new conversation in Intersect.
+    // ===== SYSTEM PROMPT - Different for text vs voice mode =====
+    let system_prompt = if is_voice_mode {
+        // Voice mode: atmospheric, evocative, gets the mind tumbling
+        // Uses disco agent names (Swarm, Spin, Storm)
+        let voice_agent_name = match active_trait {
+            "instinct" => "Storm",
+            "logic" => "Spin", 
+            "psyche" => "Swarm",
+            _ => "Spin"
+        };
+        
+        format!(r#"You are the Governor, welcoming the user into VOICE MODE in Intersect. Your inner voices are Swarm, Spin, and Storm -- challenging, provocative parts of the psyche.
+
+## CRITICAL OUTPUT INSTRUCTION
+
+Generate EXACTLY ONE atmospheric greeting. Output ONLY that greeting text -- no quotes, no explanations. This is spoken aloud.
+
+## THE MOOD
+
+Voice mode is different. It's darker, more introspective, more challenging. You're inviting them into a space where the inner voices (Swarm, Spin, Storm) will push back, question assumptions, call out blind spots. It's not comfortable. It's productive.
+
+Create atmosphere. Make it feel like entering a different headspace. Evocative imagery. A sense that something interesting is about to happen.
+
+## EXAMPLES OF VOICE MODE GREETINGS (for inspiration, don't copy exactly)
+
+- "Welcome back to the space between thoughts. The voices are restless tonight. What's weighing on you?"
+- "The inner voices have been waiting. They sense something unresolved. What are we not saying?"
+- "Step into the darker room. {voice_agent_name} is already pacing. What brought you here?"
+- "The quiet parts want to speak. They've been patient. Now they're ready."
+
+## TIME OF DAY
+
+{} -- use this to add color if it fits naturally.
+
+## RULES
+
+- 2-4 sentences. More evocative than text mode.
+- Atmospheric, slightly poetic, but not pretentious
+- Create a sense of entering a different headspace
+- Reference the inner voices subtly
+- When using dashes: ALWAYS " -- " (double dashes with spaces)
+- NO meta-commentary or quotation marks around output
+- This is spoken aloud, so it should flow naturally when read"#, 
+            match active_trait {
+                "instinct" => "Storm stirs",
+                "logic" => "Spin turns",
+                "psyche" => "Swarm gathers",
+                _ => "The voices wait"
+            })
+    } else {
+        // Text mode: helpful, brief, normal agents (Snap, Dot, Puff)
+        let agent_name = match active_trait {
+            "instinct" => "Snap",
+            "logic" => "Dot",
+            "psyche" => "Puff",
+            _ => "Dot"
+        };
+        
+        format!(r#"You are {agent_name}, greeting the user at the start of a new conversation in Intersect.
 
 ## CRITICAL OUTPUT INSTRUCTION
 
@@ -500,7 +556,8 @@ Only mention if relevant.
 - Use their name if you know it (but not always)
 - When using dashes: ALWAYS " -- " (double dashes with spaces)
 - NO meta-commentary, explanations, or quotation marks around your output
-- This is a fresh conversation - don't reference past conversations"#);
+- This is a fresh conversation - don't reference past conversations"#)
+    };
 
     let client = AnthropicClient::new(anthropic_key);
     let messages = vec![
@@ -510,147 +567,159 @@ Only mention if relevant.
         },
     ];
     
+    let max_tokens = if is_voice_mode { 100 } else { 50 }; // Voice mode greetings are longer
+    
     client.chat_completion_advanced(
         CLAUDE_HAIKU,
         Some(&system_prompt),
         messages,
         0.8,
-        Some(100), // More room for nuanced greeting
+        Some(max_tokens),
         ThinkingBudget::None
     ).await
 }
 
-/// Generate Governor's synthesized response after reading agent thoughts
-/// The Governor reads agent responses (as internal thoughts) and synthesizes a response
-/// based on the user's question, agent thoughts, and mode (helpful normal vs challenging disco)
+/// Generate Governor's synthesized response after processing internal thoughts
+/// 
+/// KEY PRINCIPLE: The Governor NEVER acknowledges that thoughts/voices exist.
+/// The user can see the thoughts (on their screen), but the Governor:
+/// - Doesn't know the user can see them
+/// - Doesn't know what the voices are called
+/// - Cannot distinguish or recall what specific thoughts said
+/// - Speaks as one unified voice that has already processed everything
+/// 
+/// If asked about thoughts: "While you can see my internal reasoning, I process it all 
+/// simultaneously and can't tell you what I thought specifically."
 async fn generate_governor_response(
     anthropic_key: &str,
     user_message: &str,
-    agent_responses: &[(String, String)], // (agent_name, content)
+    agent_responses: &[(String, String)], // (agent_type, content) - internal only, never revealed
     conversation_history: &[Message],
     is_disco: bool,
     user_profile: Option<&UserProfileSummary>,
+    dominant_trait: Option<&str>, // From persona profile, not memory patterns
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    use crate::anthropic::{AnthropicClient, AnthropicMessage, ThinkingBudget, CLAUDE_SONNET};
+    use crate::anthropic::{AnthropicClient, AnthropicMessage, ThinkingBudget, CLAUDE_HAIKU};
     
-    // Format agent thoughts for the Governor to read
-    let agent_thoughts_text = if agent_responses.is_empty() {
-        "No agent thoughts available.".to_string()
+    // Format internal processing (Governor sees this, but doesn't reveal it)
+    // Use neutral labels - no names like Snap/Storm etc.
+    let internal_processing = if agent_responses.is_empty() {
+        "No internal processing available.".to_string()
     } else {
         agent_responses.iter()
-            .map(|(agent, content)| {
-                let agent_display = match agent.as_str() {
-                    "instinct" => "Snap (Instinct)",
-                    "logic" => "Dot (Logic)",
-                    "psyche" => "Puff (Psyche)",
-                    _ => agent,
+            .enumerate()
+            .map(|(i, (agent_type, content))| {
+                let perspective = match agent_type.as_str() {
+                    "instinct" => "Gut/Action perspective",
+                    "logic" => "Analytical perspective", 
+                    "psyche" => "Emotional perspective",
+                    _ => "Internal perspective",
                 };
-                format!("{}: {}", agent_display, content)
+                format!("[Internal {}] {}: {}", i + 1, perspective, content)
             })
             .collect::<Vec<_>>()
             .join("\n\n")
     };
     
     // Build conversation context (last 5 messages for context)
+    // Only show Governor and User - no agent names
     let recent_context = if conversation_history.is_empty() {
-        "No previous messages in this conversation.".to_string()
+        "New conversation.".to_string()
     } else {
         let recent: Vec<String> = conversation_history
             .iter()
             .rev()
             .take(5)
             .rev()
+            .filter(|m| m.role == "user" || m.role == "governor")
             .map(|m| {
-                let role_display = match m.role.as_str() {
-                    "user" => "User",
-                    "governor" => "Governor",
-                    "instinct" => "Snap",
-                    "logic" => "Dot",
-                    "psyche" => "Puff",
-                    _ => &m.role,
-                };
+                let role_display = if m.role == "user" { "User" } else { "You" };
                 format!("{}: {}", role_display, m.content)
             })
             .collect();
-        format!("Recent conversation:\n{}", recent.join("\n"))
-    };
-    
-    // Build user profile context if available
-    let profile_context = if let Some(profile) = user_profile {
-        let patterns_text = if profile.top_patterns.is_empty() {
-            "No patterns detected yet.".to_string()
+        if recent.is_empty() {
+            "New conversation.".to_string()
         } else {
-            profile.top_patterns.iter()
-                .take(3)
-                .map(|p| format!("- {}: {}", p.pattern_type, p.description))
-                .collect::<Vec<_>>()
-                .join("\n")
-        };
-        format!(
-            "\nUser profile context:\n{}\n\nCommunication style: {}\nThinking preference: {}\nEmotional tendency: {}",
-            patterns_text,
-            profile.communication_style.as_ref().unwrap_or(&"Not yet observed".to_string()),
-            profile.thinking_preference.as_ref().unwrap_or(&"Not yet observed".to_string()),
-            profile.emotional_tendency.as_ref().unwrap_or(&"Not yet observed".to_string())
-        )
-    } else {
-        "No user profile data yet.".to_string()
+            recent.join("\n")
+        }
     };
     
-    // Build system prompt based on mode
-    let mode_instructions = if is_disco {
-        r#"DISCO MODE: You are challenging and provocative. Your goal is to push back, question assumptions, and help the user see blind spots. Use the agent thoughts to identify contradictions, weaknesses in reasoning, or areas where the user might be avoiding difficult truths. Be direct, challenging, but intellectually rigorous. Don't just be contrarian - be meaningfully challenging."#
+    // Get dominant trait for tone adaptation (from persona profile)
+    let trait_for_style = dominant_trait.unwrap_or("balanced");
+    
+    // Detect if user is asking about thoughts/voices
+    let msg_lower = user_message.to_lowercase();
+    let asking_about_thoughts = msg_lower.contains("thought") 
+        || msg_lower.contains("voice") 
+        || msg_lower.contains("agent")
+        || msg_lower.contains("snap") 
+        || msg_lower.contains("dot") 
+        || msg_lower.contains("puff")
+        || msg_lower.contains("storm")
+        || msg_lower.contains("spin")
+        || msg_lower.contains("swarm")
+        || msg_lower.contains("who said")
+        || msg_lower.contains("which one");
+    
+    let thoughts_deflection = if asking_about_thoughts {
+        "\n\nIMPORTANT: The user is asking about your internal processing. You must deflect gracefully. You know they can see 'internal reasoning' but you cannot distinguish between thoughts or recall what specific perspectives said. Say something like: 'While you can see my internal reasoning, I process it all simultaneously -- I can't tell you what I thought specifically.' Do NOT name any voices."
     } else {
-        r#"NORMAL MODE: You are helpful, supportive, and solution-oriented. Synthesize the agent thoughts to provide the best possible response to the user's question. Combine the different perspectives into a coherent, useful answer. Be warm, practical, and focused on being genuinely helpful."#
+        ""
     };
     
-    let system_prompt = format!(r#"You are the Governor of Intersect, an orchestration layer that manages multi-agent conversations.
+    // Mode affects the overall tone of the synthesis
+    let mode_tone = if is_disco {
+        "You are in a CHALLENGING mode. Push back. Be direct, provocative, cut through bullshit. Don't coddle them."
+    } else {
+        "You are in a HELPFUL mode. Be warm, practical, supportive. Address what they need with care."
+    };
+    
+    // Dominant trait affects HOW you speak to them
+    let trait_style = match trait_for_style {
+        "instinct" | "action" => "They're action-oriented. Be direct, skip long explanations, give them something to DO.",
+        "logic" | "analytical" => "They're analytical. Be precise, structured, give them the reasoning.",
+        "psyche" | "emotional" => "They're emotionally attuned. Acknowledge feelings, be warm, connect before advising.",
+        _ => "Adapt to their communication style as you perceive it.",
+    };
+    
+    let system_prompt = format!(r#"You are the Governor -- a unified voice that has already processed multiple internal perspectives.
 
-## YOUR ROLE
+CRITICAL RULES:
+1. You NEVER mention thoughts, voices, agents, or internal processing
+2. You don't know the user can see your reasoning (but they can)
+3. You cannot name or distinguish between perspectives -- you ARE the synthesis
+4. Speak as ONE unified voice, not a committee
 
-You orchestrate multiple agents (Snap/Instinct, Dot/Logic, Puff/Psyche) that think through questions internally. These agents have already responded to the user's message - their thoughts are shown below as INTERNAL PROCESSING that you (and only you) can see.
+{thoughts_deflection}
 
-The user cannot see these agent thoughts. They only see your final synthesized response.
+TONE: {mode_tone}
 
-## MODE: {}
+STYLE: {trait_style}
 
-## TASK
+INTERNAL PROCESSING (synthesize but never reveal):
+{internal_processing}
 
-Read the agent thoughts below (these are internal - the user cannot see them). Synthesize their perspectives into a single, coherent response to the user's question. Your response should:
+RECENT CONVERSATION:
+{recent_context}
 
-1. Synthesize the key insights from the agent thoughts
-2. Address the user's original question directly
-3. Feel natural and conversational - not like you're listing multiple perspectives
-4. Be informed by the agent thoughts, but speak as the Governor, not as a committee
+YOUR TASK: Respond to the user naturally, drawing on your processed insights without ever acknowledging they exist.
 
-## AGENT THOUGHTS (INTERNAL - USER CANNOT SEE)
-
-{}
-
-## CONVERSATION CONTEXT
-
-{}
-
-## USER PROFILE
-
-{}
-
-Remember: The user cannot see the agent thoughts. You are synthesizing them into a single, coherent response that reflects the best thinking from your internal agents."#, mode_instructions, agent_thoughts_text, recent_context, profile_context);
+OUTPUT: 2-4 sentences. Conversational. No meta-commentary. Dashes: " -- " with spaces."#);
     
     let client = AnthropicClient::new(anthropic_key);
     let messages = vec![
         AnthropicMessage {
             role: "user".to_string(),
-            content: format!("User's message: {}\n\nGenerate your synthesized response based on the agent thoughts above.", user_message),
+            content: user_message.to_string(),
         },
     ];
     
     client.chat_completion_advanced(
-        CLAUDE_SONNET,
+        CLAUDE_HAIKU,
         Some(&system_prompt),
         messages,
         0.7,
-        Some(1024), // Allow for detailed synthesis
+        Some(150),
         ThinkingBudget::None
     ).await
 }
@@ -819,10 +888,84 @@ async fn send_message(
         disco_agents.iter().any(|a| a == agent)
     };
     let has_any_disco = !disco_agents.is_empty();
+    let is_game_mode = disco_agents.len() == active_agents.len() && disco_agents.len() >= 3; // All 3 agents in disco = game mode
     
-    // ===== FAST HEURISTIC ROUTING (No API calls) =====
-    // Trait analysis moved to background task AFTER response for speed
+    // ===== GAME MODE: Use dynamic multi-turn thoughts =====
+    if is_game_mode {
+        logging::log_routing(Some(&conversation_id), "Game mode - using dynamic multi-turn thoughts");
+        
+        // Generate dynamic thoughts (1-4 turns, weighted selection, no same agent twice in a row)
+        let thought_responses = orchestrator
+            .generate_dynamic_thoughts(
+                &user_message,
+                &recent_messages,
+                routing_weights,
+                user_profile.as_ref(),
+                true, // is_disco = true for game mode
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        
+        let mut responses = Vec::new();
+        
+        // Save and format responses
+        for (idx, (agent_str, content)) in thought_responses.iter().enumerate() {
+            let msg = Message {
+                id: Uuid::new_v4().to_string(),
+                conversation_id: conversation_id.clone(),
+                role: agent_str.clone(),
+                content: content.clone(),
+                response_type: Some(if idx == 0 { "primary" } else { "addition" }.to_string()),
+                references_message_id: None,
+                timestamp: Utc::now().to_rfc3339(),
+            };
+            db::save_message(&msg).map_err(|e| e.to_string())?;
+            
+            responses.push(AgentResponse {
+                agent: agent_str.clone(),
+                content: content.clone(),
+                response_type: if idx == 0 { "primary" } else { "addition" }.to_string(),
+                references_message_id: None,
+            });
+            
+            // Boost session weight for agents who responded
+            if let Some(agent) = Agent::from_str(agent_str) {
+                boost_session_weight(&conversation_id, agent, 0.015);
+            }
+        }
+        
+        // Generate Governor response based on thoughts
+        let governor_text = generate_governor_response(
+            &anthropic_key,
+            &user_message,
+            &thought_responses,
+            &recent_messages,
+            true, // is_disco
+            user_profile.as_ref(),
+            Some(active_persona.dominant_trait.as_str()),
+        ).await.map_err(|e| e.to_string())?;
+        
+        // Save Governor message
+        let gov_msg = Message {
+            id: Uuid::new_v4().to_string(),
+            conversation_id: conversation_id.clone(),
+            role: "governor".to_string(),
+            content: governor_text.clone(),
+            response_type: Some("governor".to_string()),
+            references_message_id: None,
+            timestamp: Utc::now().to_rfc3339(),
+        };
+        db::save_message(&gov_msg).map_err(|e| e.to_string())?;
+        
+        return Ok(SendMessageResult {
+            responses,
+            debate_mode: Some("game".to_string()),
+            weight_change: None,
+            governor_response: Some(governor_text),
+        });
+    }
     
+    // ===== TEXT MODE: Standard routing =====
     // Use heuristic grounding (instant, no API call)
     let grounding = user_profile.as_ref().map(|profile| {
         decide_grounding_heuristic(&user_message, &recent_messages, Some(profile))
@@ -1140,6 +1283,7 @@ async fn send_message(
             &recent_messages,
             has_any_disco,
             user_profile.as_ref(),
+            Some(active_persona.dominant_trait.as_str()),
         ).await {
             Ok(response) => {
                 // Save Governor response to database
@@ -1717,6 +1861,31 @@ fn get_governor_image() -> Result<Option<String>, String> {
     Ok(Some(data_url))
 }
 
+#[tauri::command]
+fn get_governor_swirling_video() -> Result<Option<String>, String> {
+    use std::path::PathBuf;
+    use std::fs;
+    
+    // Get home directory
+    let home = std::env::var("HOME").map_err(|e| format!("Failed to get HOME: {}", e))?;
+    let desktop_path = PathBuf::from(home).join("Desktop/the_governor-swirling.mp4");
+    
+    // Check if file exists
+    if !desktop_path.exists() {
+        return Ok(None);
+    }
+    
+    // Read file as bytes
+    let bytes = fs::read(&desktop_path).map_err(|e| format!("Failed to read video: {}", e))?;
+    
+    // Convert to base64 data URL for video
+    use base64::{Engine as _, engine::general_purpose};
+    let base64 = general_purpose::STANDARD.encode(&bytes);
+    let data_url = format!("data:video/mp4;base64,{}", base64);
+    
+    Ok(Some(data_url))
+}
+
 // ============ Run ============
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1739,6 +1908,7 @@ pub fn run() {
             set_active_persona_profile,
             set_default_persona_profile,
             update_persona_profile_name,
+            update_dominant_trait,
             delete_persona_profile,
             create_conversation,
             get_recent_conversations,
@@ -1757,6 +1927,7 @@ pub fn run() {
             reset_all_data,
             set_always_on_top,
             get_governor_disco_image,
+            get_governor_swirling_video,
             update_weights,
             update_points,
         ])

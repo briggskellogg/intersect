@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ExternalLink, Loader2, Trash2, Check, AlertCircle, Circle, Mic } from 'lucide-react';
+import { ExternalLink, Loader2, Trash2, Check, AlertCircle, Circle, Mic } from './icons';
 import { saveApiKey, saveAnthropicKey, removeApiKey, removeAnthropicKey, getUserProfile } from '../hooks/useTauri';
 import { useAppStore } from '../store';
 import governorIcon from '../assets/governor-transparent.png';
@@ -165,7 +165,7 @@ export function ApiKeyModal({ isOpen, onComplete, initialOpenAiKey, initialAnthr
       ) : (
         <Circle className="w-3 h-3 text-ash/40" strokeWidth={2} />
       )}
-      <span className={`text-[10px] font-mono ${
+      <span className={`text-[10px] font-sans ${
         status === 'connected' ? 'text-emerald-500' : 
         status === 'error' ? 'text-red-400' : 
         'text-ash/50'
@@ -202,7 +202,7 @@ export function ApiKeyModal({ isOpen, onComplete, initialOpenAiKey, initialAnthr
               {openAiStatus === 'connected' && anthropicStatus === 'connected' && (
                 <button
                   onClick={handleDone}
-                  className="absolute top-4 right-4 px-1.5 py-1 rounded text-[10px] font-mono text-ash bg-smoke/30 hover:bg-smoke/50 border border-smoke/50 transition-colors cursor-pointer flex items-center justify-center gap-0.5"
+                  className="absolute top-4 right-4 px-1.5 py-1 rounded text-[10px] font-sans text-ash bg-smoke/30 hover:bg-smoke/50 border border-smoke/50 transition-colors cursor-pointer flex items-center justify-center gap-0.5"
                 >
                   <span>⌘</span><span>ESC</span>
                 </button>
@@ -213,7 +213,7 @@ export function ApiKeyModal({ isOpen, onComplete, initialOpenAiKey, initialAnthr
                 <h1 className="font-logo text-2xl font-bold text-white">
                   Intersect
                 </h1>
-                <span className="text-[10px] font-mono text-ash/50 ml-1.5">v1</span>
+                <span className="text-[10px] font-sans text-ash/50 ml-1.5">v1</span>
               </div>
             </div>
 
@@ -235,7 +235,7 @@ export function ApiKeyModal({ isOpen, onComplete, initialOpenAiKey, initialAnthr
                     </div>
                     <div>
                       <h3 className="text-sm font-sans text-pearl font-medium">OpenAI</h3>
-                      <p className="text-[10px] text-ash/60 font-mono">Powers Puff, Dot & Snap</p>
+                      <p className="text-[10px] text-ash/60 font-sans">Powers Puff, Dot & Snap</p>
                     </div>
                   </div>
                   <StatusIndicator status={openAiStatus} isLoading={isLoadingOpenAi} />
@@ -244,7 +244,7 @@ export function ApiKeyModal({ isOpen, onComplete, initialOpenAiKey, initialAnthr
                 {openAiStatus === 'connected' ? (
                   <button
                     onClick={handleRemoveOpenAi}
-                    className="w-full px-3 py-2 text-xs font-mono text-ash/60 hover:text-red-400 border border-smoke/30 hover:border-red-400/50 rounded-lg transition-all flex items-center justify-center gap-2"
+                    className="w-full px-3 py-2 text-xs font-sans text-ash/60 hover:text-red-400 border border-smoke/30 hover:border-red-400/50 rounded-lg transition-all flex items-center justify-center gap-2"
                   >
                     <Trash2 className="w-3 h-3" />
                     Remove Key
@@ -258,20 +258,20 @@ export function ApiKeyModal({ isOpen, onComplete, initialOpenAiKey, initialAnthr
                       onKeyDown={(e) => { if (e.key === 'Enter' && openAiKey.trim() && !isLoadingOpenAi) handleSaveOpenAi(); }}
                       placeholder="sk-..."
                       autoFocus
-                      className="flex-1 px-3 py-2.5 bg-obsidian/50 border border-smoke/40 rounded-lg text-pearl placeholder-ash/40 font-mono text-xs focus:outline-none focus:border-aurora/50 transition-colors"
+                      className="flex-1 px-3 py-2.5 bg-obsidian/50 border border-smoke/40 rounded-lg text-pearl placeholder-ash/40 font-sans text-xs focus:outline-none focus:border-aurora/50 transition-colors"
                     />
                     <button
                       onClick={handleSaveOpenAi}
                       disabled={isLoadingOpenAi || !openAiKey.trim()}
-                      className="px-4 py-2.5 text-xs font-mono font-medium rounded-lg disabled:opacity-40 transition-all flex items-center gap-2 bg-pearl text-void hover:bg-pearl/90 cursor-pointer"
+                      className="px-4 py-2.5 text-xs font-sans font-medium rounded-lg disabled:opacity-40 transition-all flex items-center gap-2 bg-pearl text-void hover:bg-pearl/90 cursor-pointer"
                     >
                       {isLoadingOpenAi && <Loader2 className="w-3 h-3 animate-spin" />}
                       {isLoadingOpenAi ? 'Saving' : 'Save'}
-                      <kbd className="px-1 py-0.5 bg-void/20 rounded text-[9px] font-mono">↵</kbd>
+                      <kbd className="px-1 py-0.5 bg-void/20 rounded text-[9px] font-sans">↵</kbd>
                     </button>
                   </div>
                 )}
-                <p className="mt-2.5 text-[10px] text-ash/50 font-mono flex items-center gap-1">
+                <p className="mt-2.5 text-[10px] text-ash/50 font-sans flex items-center gap-1">
                   <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-aurora/70 hover:text-aurora transition-colors inline-flex items-center gap-1">
                     <ExternalLink className="w-2.5 h-2.5" />
                     Get your API key
@@ -292,7 +292,7 @@ export function ApiKeyModal({ isOpen, onComplete, initialOpenAiKey, initialAnthr
                     <img src={governorIcon} alt="Governor" className="w-7 h-7" />
                     <div>
                       <h3 className="text-sm font-sans text-pearl font-medium">Anthropic</h3>
-                      <p className="text-[10px] text-ash/60 font-mono">Powers Governor</p>
+                      <p className="text-[10px] text-ash/60 font-sans">Powers Governor</p>
                     </div>
                   </div>
                   <StatusIndicator status={anthropicStatus} isLoading={isLoadingAnthropic} />
@@ -301,7 +301,7 @@ export function ApiKeyModal({ isOpen, onComplete, initialOpenAiKey, initialAnthr
                 {anthropicStatus === 'connected' ? (
                   <button
                     onClick={handleRemoveAnthropic}
-                    className="w-full px-3 py-2 text-xs font-mono text-ash/60 hover:text-red-400 border border-smoke/30 hover:border-red-400/50 rounded-lg transition-all flex items-center justify-center gap-2"
+                    className="w-full px-3 py-2 text-xs font-sans text-ash/60 hover:text-red-400 border border-smoke/30 hover:border-red-400/50 rounded-lg transition-all flex items-center justify-center gap-2"
                   >
                     <Trash2 className="w-3 h-3" />
                     Remove Key
@@ -314,20 +314,20 @@ export function ApiKeyModal({ isOpen, onComplete, initialOpenAiKey, initialAnthr
                       onChange={(e) => { setAnthropicKey(e.target.value); setError(null); }}
                       onKeyDown={(e) => { if (e.key === 'Enter' && anthropicKey.trim() && !isLoadingAnthropic) handleSaveAnthropic(); }}
                       placeholder="sk-ant-..."
-                      className="flex-1 px-3 py-2.5 bg-obsidian/50 border border-smoke/40 rounded-lg text-pearl placeholder-ash/40 font-mono text-xs focus:outline-none focus:border-psyche/50 transition-colors"
+                      className="flex-1 px-3 py-2.5 bg-obsidian/50 border border-smoke/40 rounded-lg text-pearl placeholder-ash/40 font-sans text-xs focus:outline-none focus:border-psyche/50 transition-colors"
                     />
                     <button
                       onClick={handleSaveAnthropic}
                       disabled={isLoadingAnthropic || !anthropicKey.trim()}
-                      className="px-4 py-2.5 text-xs font-mono font-medium rounded-lg disabled:opacity-40 transition-all flex items-center gap-2 bg-pearl text-void hover:bg-pearl/90 cursor-pointer"
+                      className="px-4 py-2.5 text-xs font-sans font-medium rounded-lg disabled:opacity-40 transition-all flex items-center gap-2 bg-pearl text-void hover:bg-pearl/90 cursor-pointer"
                     >
                       {isLoadingAnthropic && <Loader2 className="w-3 h-3 animate-spin" />}
                       {isLoadingAnthropic ? 'Saving' : 'Save'}
-                      <kbd className="px-1 py-0.5 bg-void/20 rounded text-[9px] font-mono">↵</kbd>
+                      <kbd className="px-1 py-0.5 bg-void/20 rounded text-[9px] font-sans">↵</kbd>
                     </button>
                   </div>
                 )}
-                <p className="mt-2.5 text-[10px] text-ash/50 font-mono flex items-center gap-1">
+                <p className="mt-2.5 text-[10px] text-ash/50 font-sans flex items-center gap-1">
                   <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" className="text-psyche/70 hover:text-psyche transition-colors inline-flex items-center gap-1">
                     <ExternalLink className="w-2.5 h-2.5" />
                     Get your API key
@@ -351,9 +351,9 @@ export function ApiKeyModal({ isOpen, onComplete, initialOpenAiKey, initialAnthr
                     <div>
                       <h3 className="text-sm font-sans text-pearl font-medium flex items-center gap-2">
                         ElevenLabs
-                        <span className="px-1 py-0.5 bg-amber-500/15 text-amber-400/80 border border-amber-500/25 rounded-full text-[8px] font-mono font-medium leading-none">OPTIONAL</span>
+                        <span className="px-1 py-0.5 bg-amber-500/15 text-amber-400/80 border border-amber-500/25 rounded-full text-[8px] font-sans font-medium leading-none">OPTIONAL</span>
                       </h3>
-                      <p className="text-[10px] text-ash/60 font-mono">Voice transcription</p>
+                      <p className="text-[10px] text-ash/60 font-sans">Voice transcription</p>
                     </div>
                   </div>
                   <StatusIndicator status={elevenLabsStatus} isLoading={isLoadingElevenLabs} />
@@ -362,7 +362,7 @@ export function ApiKeyModal({ isOpen, onComplete, initialOpenAiKey, initialAnthr
                 {elevenLabsStatus === 'connected' ? (
                   <button
                     onClick={handleRemoveElevenLabs}
-                    className="w-full px-3 py-2 text-xs font-mono text-ash/60 hover:text-red-400 border border-smoke/30 hover:border-red-400/50 rounded-lg transition-all flex items-center justify-center gap-2"
+                    className="w-full px-3 py-2 text-xs font-sans text-ash/60 hover:text-red-400 border border-smoke/30 hover:border-red-400/50 rounded-lg transition-all flex items-center justify-center gap-2"
                   >
                     <Trash2 className="w-3 h-3" />
                     Remove Key
@@ -375,20 +375,20 @@ export function ApiKeyModal({ isOpen, onComplete, initialOpenAiKey, initialAnthr
                       onChange={(e) => { setElevenLabsKey(e.target.value); setError(null); }}
                       onKeyDown={(e) => { if (e.key === 'Enter' && elevenLabsKey.trim() && !isLoadingElevenLabs) handleSaveElevenLabs(); }}
                       placeholder="xi-..."
-                      className="flex-1 px-3 py-2.5 bg-obsidian/50 border border-smoke/40 rounded-lg text-pearl placeholder-ash/40 font-mono text-xs focus:outline-none focus:border-aurora/50 transition-colors"
+                      className="flex-1 px-3 py-2.5 bg-obsidian/50 border border-smoke/40 rounded-lg text-pearl placeholder-ash/40 font-sans text-xs focus:outline-none focus:border-aurora/50 transition-colors"
                     />
                     <button
                       onClick={handleSaveElevenLabs}
                       disabled={isLoadingElevenLabs || !elevenLabsKey.trim()}
-                      className="px-4 py-2.5 text-xs font-mono font-medium rounded-lg disabled:opacity-40 transition-all flex items-center gap-2 bg-pearl text-void hover:bg-pearl/90 cursor-pointer"
+                      className="px-4 py-2.5 text-xs font-sans font-medium rounded-lg disabled:opacity-40 transition-all flex items-center gap-2 bg-pearl text-void hover:bg-pearl/90 cursor-pointer"
                     >
                       {isLoadingElevenLabs && <Loader2 className="w-3 h-3 animate-spin" />}
                       {isLoadingElevenLabs ? 'Saving' : 'Save'}
-                      <kbd className="px-1 py-0.5 bg-void/20 rounded text-[9px] font-mono">↵</kbd>
+                      <kbd className="px-1 py-0.5 bg-void/20 rounded text-[9px] font-sans">↵</kbd>
                     </button>
                   </div>
                 )}
-                <p className="mt-2.5 text-[10px] text-ash/50 font-mono flex items-center gap-1">
+                <p className="mt-2.5 text-[10px] text-ash/50 font-sans flex items-center gap-1">
                   <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noopener noreferrer" className="text-aurora/70 hover:text-aurora transition-colors inline-flex items-center gap-1">
                     <ExternalLink className="w-2.5 h-2.5" />
                     Get your API key
@@ -400,7 +400,7 @@ export function ApiKeyModal({ isOpen, onComplete, initialOpenAiKey, initialAnthr
                 <motion.p 
                   initial={{ opacity: 0 }} 
                   animate={{ opacity: 1 }} 
-                  className="text-xs font-mono text-center px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400"
+                  className="text-xs font-sans text-center px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400"
                 >
                   {error}
                 </motion.p>

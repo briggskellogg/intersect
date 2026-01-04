@@ -61,7 +61,7 @@ impl OpenAIClient {
         max_tokens: Option<u32>,
     ) -> Result<String, Box<dyn Error + Send + Sync>> {
         let request = ChatCompletionRequest {
-            model: "gpt-4o".to_string(),
+            model: "gpt-4o-mini".to_string(), // Faster for short responses
             messages,
             temperature,
             max_tokens: max_tokens.or(Some(2048)),

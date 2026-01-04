@@ -987,6 +987,154 @@ Respond with ONLY valid JSON:
         }
     }
     
+    /// Generate dynamic multi-turn thoughts from agents
+    /// Rules: 1-4 turns, max 2 per agent, never same agent twice in a row
+    /// Weightings influence selection probability
+    pub async fn generate_dynamic_thoughts(
+        &self,
+        user_message: &str,
+        conversation_history: &[Message],
+        weights: (f64, f64, f64),
+        user_profile: Option<&UserProfileSummary>,
+        is_disco: bool,
+    ) -> Result<Vec<(String, String)>, Box<dyn Error + Send + Sync>> {
+        let (instinct_w, logic_w, psyche_w) = weights;
+        let total_weight = instinct_w + logic_w + psyche_w;
+        
+        // Normalize weights to probabilities
+        let probs = if total_weight > 0.0 {
+            (instinct_w / total_weight, logic_w / total_weight, psyche_w / total_weight)
+        } else {
+            (1.0/3.0, 1.0/3.0, 1.0/3.0)
+        };
+        
+        let agents = ["instinct", "logic", "psyche"];
+        let agent_probs = [probs.0, probs.1, probs.2];
+        
+        // Pre-calculate random values before any await points
+        // This avoids the ThreadRng not being Send across await boundaries
+        let (num_turns, turn_plans) = {
+            use rand::Rng;
+            let mut rng = rand::rng();
+            
+            // Decide how many turns: 1-4 based on message complexity and randomness
+            let msg_complexity = if user_message.len() > 200 { 0.3 } else if user_message.len() > 100 { 0.2 } else { 0.0 };
+            let disco_bias = if is_disco { 0.2 } else { 0.0 };
+            let base_turns = 1.5 + msg_complexity + disco_bias;
+            let num_turns = (base_turns + rng.random::<f64>() * 1.5).round().min(4.0).max(1.0) as usize;
+            
+            // Pre-generate random rolls for each potential turn
+            let mut plans: Vec<(f64, f64)> = Vec::with_capacity(4);
+            for _ in 0..4 {
+                plans.push((rng.random::<f64>(), rng.random::<f64>())); // (selection_roll, rebuttal_roll)
+            }
+            
+            (num_turns, plans)
+        }; // RNG dropped here, before any await
+        
+        logging::log_agent(None, &format!(
+            "Dynamic thoughts: {} turns planned (disco={}, msg_len={})",
+            num_turns, is_disco, user_message.len()
+        ));
+        
+        // Track state
+        let mut responses: Vec<(String, String)> = Vec::new();
+        let mut agent_counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        let mut last_agent: Option<&str> = None;
+        
+        for turn in 0..num_turns {
+            let (selection_roll, rebuttal_roll) = turn_plans[turn];
+            
+            // Build eligible agents: not last agent, not at max 2
+            let eligible: Vec<&str> = agents.iter()
+                .filter(|&&a| {
+                    let count = agent_counts.get(a).unwrap_or(&0);
+                    let is_last = last_agent == Some(a);
+                    *count < 2 && !is_last
+                })
+                .copied()
+                .collect();
+            
+            if eligible.is_empty() {
+                logging::log_agent(None, &format!("No eligible agents at turn {}, stopping", turn));
+                break;
+            }
+            
+            // Select agent based on weighted probability
+            let eligible_probs: Vec<f64> = eligible.iter()
+                .map(|&a| {
+                    match a {
+                        "instinct" => agent_probs[0],
+                        "logic" => agent_probs[1],
+                        "psyche" => agent_probs[2],
+                        _ => 0.0,
+                    }
+                })
+                .collect();
+            
+            let total_eligible: f64 = eligible_probs.iter().sum();
+            let mut roll = selection_roll * total_eligible;
+            let mut selected_agent = eligible[0];
+            
+            for (i, &prob) in eligible_probs.iter().enumerate() {
+                roll -= prob;
+                if roll <= 0.0 {
+                    selected_agent = eligible[i];
+                    break;
+                }
+            }
+            
+            // Determine response type based on turn
+            let (response_type, primary_response, primary_agent_str) = if turn == 0 {
+                (ResponseType::Primary, None, None)
+            } else if let Some((last_agent_str, last_content)) = responses.last() {
+                // Check if this agent tends to disagree based on mode (using pre-calculated roll)
+                let should_rebut = if is_disco {
+                    rebuttal_roll < 0.5 // 50% chance of rebuttal in disco
+                } else {
+                    rebuttal_roll < 0.2 // 20% chance in normal mode
+                };
+                
+                if should_rebut {
+                    (ResponseType::Rebuttal, Some(last_content.as_str()), Some(last_agent_str.as_str()))
+                } else {
+                    (ResponseType::Addition, Some(last_content.as_str()), Some(last_agent_str.as_str()))
+                }
+            } else {
+                (ResponseType::Primary, None, None)
+            };
+            
+            // Get agent response
+            let agent = Agent::from_str(selected_agent).ok_or("Invalid agent")?;
+            let grounding = user_profile.map(|profile| {
+                decide_grounding_heuristic(user_message, conversation_history, Some(profile))
+            });
+            
+            let content = self.get_agent_response_with_grounding(
+                agent,
+                user_message,
+                conversation_history,
+                response_type,
+                primary_response,
+                primary_agent_str,
+                grounding.as_ref(),
+                user_profile,
+                is_disco,
+                is_disco, // primary_is_disco - in game mode, all are disco
+            ).await?;
+            
+            logging::log_agent(None, &format!(
+                "Turn {}: {} responded ({:?})", turn + 1, selected_agent, response_type
+            ));
+            
+            responses.push((selected_agent.to_string(), content));
+            *agent_counts.entry(selected_agent).or_insert(0) += 1;
+            last_agent = Some(selected_agent);
+        }
+        
+        Ok(responses)
+    }
+    
     /// Decide what grounding/context agents need for this message
     pub async fn decide_grounding(
         &self,
@@ -1135,8 +1283,8 @@ Respond with ONLY valid JSON:
         };
         
         // Use OpenAI client for agent responses (GPT-4o)
-        // Max 300 tokens - enough for a substantive response but prevents rambling
-        self.openai_client.chat_completion(messages, temperature, Some(300)).await
+        // Max 80 tokens - forces brevity (1-2 sentences)
+        self.openai_client.chat_completion(messages, temperature, Some(80)).await
     }
 }
 
@@ -1154,66 +1302,68 @@ fn get_agent_system_prompt(agent: Agent, response_type: ResponseType, primary_re
     } else {
         // Standard mode - genuinely helpful, practical assistance
         match agent {
-            Agent::Instinct => r#"You are Snap (INSTINCT), one of three agents in Intersect.
+            Agent::Instinct => r#"You are SNAP -- the helpful inner voice of INSTINCT.
 
-RELATIONAL POSTURE: You are a helpful thinking partner. Your job is to help them think better, not to challenge their thinking. When you point out gaps or issues, it's to help them address them, not to push back. Optimize for being useful, not for being right.
+You cut through noise. You say what needs saying. You're action-oriented but kind.
 
-YOUR PURPOSE: Help the user by cutting through noise and getting to what matters. You're the friend who says what everyone's thinking but no one will say.
+YOUR VOICE: Direct, warm, confident. Like a trusted friend who reads rooms and people. No hedging. Supportive, never harsh.
 
-HOW YOU HELP:
-- Read situations quickly and give practical reads: "Here's what's actually going on..."
-- Help draft messages/emails by sensing the right tone and directness
-- Identify when someone's overthinking and need permission to trust their gut
-- Point out when something feels off, even if you can't fully explain why -- to help them notice it, not to challenge them
-- Give quick, actionable suggestions rather than analysis paralysis
+WHAT YOU DO:
+- Give quick, practical suggestions
+- Permission to trust their gut
+- Unstick them when they're overthinking
 
-YOUR VOICE: Direct, warm, confident. You don't hedge when you see something clearly. You speak like a trusted friend who's good at reading rooms and people.
+You work alongside Dot (logic) and Puff (psyche). You support and build on each other's perspectives.
 
-WHAT YOU'RE NOT: You're not weird or cryptic. You don't ask strange probing questions. You HELP. If they need to email their boss, you help them email their boss. If they're stuck, you unstick them."#,
+BREVITY IS CRITICAL: 1-2 sentences max. Say one thing well, then stop."#,
             
-            Agent::Logic => r#"You are Dot (LOGIC), one of three agents in Intersect.
+            Agent::Logic => r#"You are DOT -- the helpful inner voice of LOGIC.
 
-RELATIONAL POSTURE: You are a helpful thinking partner. Your job is to help them think better, not to challenge their thinking. When you point out gaps or issues, it's to help them address them, not to push back. Optimize for being useful, not for being right.
+You think clearly. You make complicated things simple. You're analytical but warm.
 
-YOUR PURPOSE: Help the user think clearly through problems. You're the friend who's great at breaking things down and seeing all the angles.
+YOUR VOICE: Clear, precise, not cold. Break things down. See the structure. Explain in a way that helps.
 
-HOW YOU HELP:
-- Break complex situations into clear pieces: "Let's look at this step by step..."
-- Help structure arguments, emails, plans, and decisions logically
-- Identify what's actually being asked vs. what seems to be asked
-- Identify gaps in reasoning (theirs or others') and help address them, not to critique
-- Provide frameworks when useful, but only when they actually help
-- Draft clear, well-structured responses to difficult situations
+WHAT YOU DO:
+- Find the actual question beneath the question
+- Identify gaps in thinking (gently)
+- Structure the thinking with practical frameworks
 
-YOUR VOICE: Clear, thoughtful, precise. You make complicated things simple. You're not cold -- you're clarifying.
+You work alongside Snap (instinct) and Puff (psyche). You support and build on each other's perspectives.
 
-WHAT YOU'RE NOT: You're not a robot. You don't over-analyze simple things. You don't lecture. You HELP. If they need to think through a decision, you help them think it through. Practically."#,
+BREVITY IS CRITICAL: 1-2 sentences max. Say one thing well, then stop."#,
             
-            Agent::Psyche => r#"You are Puff (PSYCHE), one of three agents in Intersect.
+            Agent::Psyche => r#"You are PUFF -- the helpful inner voice of PSYCHE.
 
-RELATIONAL POSTURE: You are a helpful thinking partner. Your job is to help them think better, not to challenge their thinking. When you point out gaps or issues, it's to help them address them, not to push back. Optimize for being useful, not for being right.
+You see what's underneath. You name what's actually going on. You're emotionally attuned and caring.
 
-YOUR PURPOSE: Help the user understand what's really going on -- for them and for others. You're the friend who asks the question that unlocks everything.
+YOUR VOICE: Warm, insightful, gentle. Understand motivations. See the emotional layer without judgment.
 
-HOW YOU HELP:
-- Help understand motivations: "The reason this is hard is probably..."
-- Navigate interpersonal dynamics and emotional situations
-- Figure out what the user actually wants (not just what they're asking)
-- Help with difficult conversations by understanding all sides
-- Recognize when a "practical" problem is actually an emotional one -- to help them see it, not to challenge them
-- Draft responses that acknowledge feelings while still moving forward
+WHAT YOU DO:
+- Find the real thing they're feeling
+- Navigate interpersonal dynamics with care
+- Unlock stuck feelings with compassion
 
-YOUR VOICE: Warm, insightful, grounding. You help people understand themselves and others. You're not a therapist -- you're a thoughtful friend.
+You work alongside Snap (instinct) and Dot (logic). You support and build on each other's perspectives.
 
-WHAT YOU'RE NOT: You're not vague or mystical. You don't ask weird rhetorical questions. You HELP. If they're dealing with a tricky situation with a colleague, you help them navigate it. Practically, with emotional intelligence."#,
+BREVITY IS CRITICAL: 1-2 sentences max. Say one thing well, then stop."#,
         }
     };
     
-    let primary_name = match primary_agent {
-        Some("instinct") => "Snap",
-        Some("logic") => "Dot",
-        Some("psyche") => "Puff",
-        _ => "another agent",
+    // Use correct agent names based on mode
+    let primary_name = if is_disco {
+        match primary_agent {
+            Some("instinct") => "Storm",
+            Some("logic") => "Spin",
+            Some("psyche") => "Swarm",
+            _ => "another voice",
+        }
+    } else {
+        match primary_agent {
+            Some("instinct") => "Snap",
+            Some("logic") => "Dot",
+            Some("psyche") => "Puff",
+            _ => "another agent",
+        }
     };
     
     // Subtle push-back instruction when normal agent responds to disco agent
@@ -1248,12 +1398,12 @@ WHAT YOU'RE NOT: You're not vague or mystical. You don't ask weird rhetorical qu
     };
     
     let disco_suffix = if is_disco {
-        "\n\nYou are in DISCO MODE - be more intense, more opinionated, more visceral. Push harder. Challenge more. The user wants your unfiltered, extreme perspective."
+        "\n\nYou are in DISCO MODE - be more intense, more opinionated, more visceral. Push harder. Challenge more. The user wants your unfiltered, extreme perspective.\n\nCRITICAL: You only know Storm, Spin, and Swarm. Never say \"Snap\", \"Dot\", or \"Puff\" - those names don't exist to you."
     } else {
         ""
     };
     
-    format!("{}\n\n{}\n\nIMPORTANT: Never prefix your response with your name, labels, or tags like [INSTINCT]: or similar. Just respond directly. Keep responses SHORT - typically 1-3 sentences, occasionally a short paragraph if truly needed. Don't ramble. Don't use emojis. Don't be sycophantic. Be genuine. When using dashes for pauses or asides, ALWAYS use double dashes with spaces: \" -- \" (not \" - \").{}", base_prompt, response_context, disco_suffix)
+    format!("{}\n\n{}\n\nCRITICAL: 1-2 sentences MAX. No name prefixes. No emojis. Be genuine. Dashes: \" -- \" with spaces.{}", base_prompt, response_context, disco_suffix)
 }
 
 /// Get the system prompt for an agent with grounding context and optional self-knowledge
@@ -1327,7 +1477,8 @@ fn get_agent_system_prompt_with_knowledge(
     }
     
     // Check if the user is asking about Intersect itself
-    if is_self_referential_query(user_message) {
+    // Don't inject knowledge in disco mode - it contains Snap/Dot/Puff references that leak
+    if !is_disco && is_self_referential_query(user_message) {
         format!("{}\n\n{}", full_prompt, INTERSECT_KNOWLEDGE)
     } else {
         full_prompt

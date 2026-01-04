@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { BotMessageSquare, ShieldCheck, X, Minus, Square, Mic, Sparkles, ExternalLink } from 'lucide-react';
+import { BotMessageSquare, ShieldCheck, X, Minus, Square, GameModeIcon, ClipboardCopy, ClipboardCheck, VoiceSettings } from './icons';
 import { MessageBubble } from './MessageBubble';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { ThemeToggle } from './ThemeToggle';
 import { ThoughtsContainer } from './ThoughtsContainer';
 import { useAppStore } from '../store';
 import { Message, AgentType, DebateMode } from '../types';
-import { AGENTS, DISCO_AGENTS, AGENT_ORDER } from '../constants/agents';
+import { AGENTS, AGENT_ORDER, USER_PROFILES } from '../constants/agents';
 import { 
   sendMessage, 
   createConversation, 
@@ -24,6 +24,7 @@ import { v4 as uuidv4 } from 'uuid';
 import defaultGovernorIcon from '../assets/governor.png';
 import spiritAnimal from '../assets/spirit_animal.png';
 import { GovernorNotification } from './GovernorNotification';
+import { ImmersiveMode } from './ImmersiveMode';
 
 interface ChatWindowProps {
   onOpenSettings: () => void;
@@ -40,9 +41,6 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
     setCurrentConversation,
     getActiveAgentsList,
     agentModes,
-    toggleAgentMode,
-    toggleDiscoMode,
-    isDiscoMode,
     debateMode,
     setDebateMode,
     isLoading,
@@ -60,7 +58,7 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
   // Count active agents for Governor logic
   const activeCount = Object.values(agentModes).filter(m => m === 'on').length;
   
-  const { activePersonaProfile, elevenLabsApiKey, isSettingsOpen } = useAppStore();
+  const { activePersonaProfile, elevenLabsApiKey, isSettingsOpen, isImmersiveMode, setImmersiveMode } = useAppStore();
   
   const [inputValue, setInputValue] = useState('');
   const [governorIcon, setGovernorIcon] = useState<string | null>(null);
@@ -69,6 +67,39 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
     actionLabel?: string;
     onAction?: () => void;
   } | null>(null);
+  
+
+  // Get user avatar based on dominant trait
+  const userAvatar = activePersonaProfile?.dominantTrait 
+    ? USER_PROFILES[activePersonaProfile.dominantTrait] 
+    : defaultGovernorIcon;
+
+  // Copy current conversation to clipboard
+  const [copied, setCopied] = useState(false);
+  const copyConversation = useCallback(async () => {
+    if (messages.length === 0) return;
+    
+    let text = '';
+    
+    messages.forEach((msg) => {
+      const role = msg.role === 'user' ? 'You' 
+        : msg.role === 'governor' ? 'Governor'
+        : msg.role === 'governor_thoughts' ? 'Governor (thinking)'
+        : msg.role === 'instinct' ? 'Snap (Instinct)'
+        : msg.role === 'logic' ? 'Dot (Logic)'
+        : msg.role === 'psyche' ? 'Puff (Psyche)'
+        : msg.role;
+      text += `${role}:\n${msg.content}\n\n`;
+    });
+    
+    try {
+      await navigator.clipboard.writeText(text.trim());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  }, [messages]);
 
   // Load governor icon from desktop when component mounts
   useEffect(() => {
@@ -369,10 +400,6 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
             e.preventDefault();
             handleNewConversation(); // New conversation
             break;
-          case 'd':
-            e.preventDefault();
-            toggleDiscoMode(); // Toggle global disco mode
-            break;
           case 'p':
             e.preventDefault();
             onOpenSettings(); // Open Profile modal
@@ -391,23 +418,14 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
             const nextTheme = currentTheme === 'system' ? 'light' : currentTheme === 'light' ? 'dark' : 'system';
             useAppStore.getState().setTheme(nextTheme);
             break;
-          case '1':
-            // Skip if Settings is open - let Settings handle profile switching
-            if (!isSettingsOpen) {
-              e.preventDefault();
-              toggleAgentMode('psyche'); // Toggle Puff (first in UI order)
-            }
-            break;
-          case '2':
-            if (!isSettingsOpen) {
-              e.preventDefault();
-              toggleAgentMode('logic'); // Toggle Dot (second in UI order)
-            }
-            break;
-          case '3':
-            if (!isSettingsOpen) {
-              e.preventDefault();
-              toggleAgentMode('instinct'); // Toggle Snap (third in UI order)
+          case 'c':
+            // Only copy conversation if not in a text input and no text selected
+            if (!(e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement)) {
+              const selection = window.getSelection();
+              if (!selection || selection.toString().length === 0) {
+                e.preventDefault();
+                copyConversation();
+              }
             }
             break;
         }
@@ -419,6 +437,15 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
             stopTranscription();
           }
           handleSend();
+        }
+        
+        // Cmd+G: Enter game mode directly (text conversation persists when returning)
+        if (e.key === 'g') {
+          e.preventDefault();
+          if (!isImmersiveMode) {
+            setImmersiveMode(true);
+          }
+          // Exiting is handled by ImmersiveMode component with its own confirmation
         }
       }
       
@@ -434,7 +461,7 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
     
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [toggleAgentMode, toggleTranscription, isTranscribing, stopTranscription, isSettingsOpen, onOpenSettings]);
+  }, [toggleTranscription, isTranscribing, stopTranscription, isSettingsOpen, onOpenSettings, isImmersiveMode, setImmersiveMode, copyConversation]);
 
   // Handle send message
   const handleSend = async () => {
@@ -452,8 +479,8 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
     }
     
     const activeList = getActiveAgentsList();
-    // In global disco mode, all active agents are in disco
-    const discoList = isDiscoMode ? activeList : [];
+    // Text mode always uses normal agents (no disco)
+    const discoList: AgentType[] = [];
     if (activeList.length === 0) {
       setError('Enable at least one agent');
       return;
@@ -523,9 +550,8 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
         // Clear thinking indicator before message appears
         setThinkingAgent(null);
         
-        // Display agent response as Governor's thought with agent name
-        const agentConfig = isDiscoMode ? DISCO_AGENTS : AGENTS;
-        const agentInfo = agentConfig[response.agent as AgentType];
+        // Display agent response as Governor's thought with agent name (always normal in text mode)
+        const agentInfo = AGENTS[response.agent as AgentType];
         const governorThoughtMessage: Message = {
           id: uuidv4(),
           conversationId: currentConversation.id,
@@ -535,7 +561,7 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
           referencesMessageId: response.references_message_id || undefined,
           timestamp: new Date(),
           agentName: agentInfo?.name || response.agent,
-          isDisco: isDiscoMode,
+          isDisco: false, // Text mode never uses disco
         };
         addMessage(governorThoughtMessage);
         
@@ -640,8 +666,8 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
     if (!currentConversation) return;
     
     const activeList = getActiveAgentsList();
-    // In global disco mode, all active agents are in disco
-    const discoList = isDiscoMode ? activeList : [];
+    // Text mode always uses normal agents (no disco)
+    const discoList: AgentType[] = [];
     if (activeList.length === 0) return;
     
     // Reset cancel flag
@@ -695,9 +721,8 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
         // Clear thinking indicator before message appears
         setThinkingAgent(null);
         
-        // Display agent response as Governor's thought with agent name
-        const agentConfig = isDiscoMode ? DISCO_AGENTS : AGENTS;
-        const agentInfo = agentConfig[response.agent as AgentType];
+        // Display agent response as Governor's thought with agent name (always normal in text mode)
+        const agentInfo = AGENTS[response.agent as AgentType];
         const governorThoughtMessage: Message = {
           id: uuidv4(),
           conversationId: currentConversation.id,
@@ -707,7 +732,7 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
           referencesMessageId: response.references_message_id || undefined,
           timestamp: new Date(),
           agentName: agentInfo?.name || response.agent,
-          isDisco: isDiscoMode,
+          isDisco: false, // Text mode never uses disco
         };
         addMessage(governorThoughtMessage);
         
@@ -910,86 +935,76 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
             </button>
           </div>
 
-          {/* New conversation button */}
-          <button
-            onClick={() => handleNewConversation()}
-            className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-ash/60 hover:text-pearl hover:bg-smoke/20 transition-all cursor-pointer"
-            title="New conversation (⌘N)"
-          >
-            <BotMessageSquare className="w-4 h-4" strokeWidth={1.5} />
-            <kbd className="text-[8px] font-mono text-ash/40">⌘N</kbd>
-          </button>
-          
-          {/* Agent toggles - in a pill container (simple on/off) */}
-          <div className="flex items-center gap-1.5 bg-charcoal/60 rounded-full px-2 py-1.5 border border-smoke/30">
-            {AGENT_ORDER.map((agentId, index) => {
-              // Use disco agents config if global disco mode is on
-              const agentConfig = isDiscoMode ? DISCO_AGENTS[agentId] : AGENTS[agentId];
-              const isActive = agentModes[agentId] === 'on';
-              const hotkeyNum = index + 1;
+          {/* New conversation + Immersive mode pill */}
+          <div className="flex items-center gap-1 bg-charcoal/60 rounded-full px-1.5 py-1 border border-smoke/30">
+            <button
+              onClick={() => handleNewConversation()}
+              className="flex items-center gap-1 px-1.5 py-1 rounded-full text-ash/60 hover:text-pearl hover:bg-smoke/30 transition-all cursor-pointer"
+              title="New conversation (⌘N)"
+            >
+              <BotMessageSquare className="w-3.5 h-3.5" strokeWidth={1.5} />
+              <kbd className="text-[8px] font-mono text-ash/40">⌘N</kbd>
+            </button>
+            
+            <div className="w-px h-4 bg-smoke/30" />
+            
+            <div className="relative group/voice">
+              <button
+                onClick={() => setImmersiveMode(true)}
+                className="group flex items-center gap-1 px-1.5 py-1 rounded-full transition-all cursor-pointer hover:bg-amber-500/20"
+                style={{ color: '#EAB308' }}
+                title="Game Mode (⌘G)"
+              >
+                <GameModeIcon size={13} className="opacity-70 group-hover:opacity-100 transition-opacity" />
+                <kbd className="text-[8px] font-mono opacity-40 group-hover:opacity-70 transition-opacity">⌘G</kbd>
+              </button>
               
-              return (
-                <div key={agentId} className="relative group/agent flex items-center gap-1">
-                  <motion.button
-                    onClick={() => toggleAgentMode(agentId)}
-                    className={`relative w-5 h-5 rounded-full overflow-visible transition-all ${
-                      isActive 
-                        ? 'opacity-100' 
-                        : 'opacity-40 grayscale hover:opacity-60'
-                    } cursor-pointer`}
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    title={`Toggle ${agentConfig.name}: ${isActive ? 'On' : 'Off'} (⌘${hotkeyNum})`}
-                  >
-                    <div className="w-full h-full rounded-full overflow-hidden">
-                      <img 
-                        src={agentConfig.avatar} 
-                        alt={agentConfig.name}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                    {/* Active indicator dot - bottom right, overlapping */}
-                    {isActive && (
-                      <motion.div
-                        className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-charcoal z-10"
-                        style={{ backgroundColor: '#22C55E' }}
-                        animate={{ opacity: [0.7, 1, 0.7] }}
-                        transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-                      />
-                    )}
-                  </motion.button>
-                  <kbd className="text-[8px] font-mono text-ash/40">⌘{hotkeyNum}</kbd>
-                  
-                  {/* Hover tooltip */}
-                  <div 
-                    className="absolute top-full mt-2 left-1/2 -translate-x-1/2 px-3 py-2 bg-obsidian/95 border rounded-lg opacity-0 invisible group-hover/agent:opacity-100 group-hover/agent:visible transition-all shadow-xl w-[200px] z-50 pointer-events-none"
-                    style={{ borderColor: `${agentConfig.color}40` }}
-                  >
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <span 
-                        className="text-xs font-sans font-medium"
-                        style={{ color: agentConfig.color }}
-                      >
-                        {agentConfig.name}
-                      </span>
-                      <span className="text-[9px] text-ash/50 font-mono uppercase">{agentId}</span>
-                      <span 
-                        className={`text-[8px] px-1.5 py-0.5 rounded-full font-mono uppercase ${
-                          isActive 
-                            ? 'bg-emerald-500/20 text-emerald-400'
-                            : 'bg-smoke/30 text-ash/50'
-                        }`}
-                      >
-                        {isActive ? 'On' : 'Off'}
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-ash/80 font-mono leading-relaxed">
-                      {agentConfig.description}
-                    </p>
-                  </div>
+              {/* Hover tooltip */}
+              <div 
+                className="absolute top-full mt-2 left-0 px-3 py-2 bg-obsidian/95 border rounded-lg opacity-0 invisible group-hover/voice:opacity-100 group-hover/voice:visible transition-all shadow-xl w-[280px] z-50 pointer-events-auto"
+                style={{ borderColor: 'rgba(234, 179, 8, 0.4)' }}
+              >
+                <div className="flex items-center gap-2 mb-1.5">
+                  <GameModeIcon size={12} className="text-amber-400" />
+                  <span className="text-xs font-sans font-medium text-amber-300">GAME MODE</span>
+                  <kbd className="px-1.5 py-0.5 bg-smoke/30 rounded border border-smoke/40 text-[8px] font-mono text-ash/60">⌘G</kbd>
                 </div>
-              );
-            })}
+                <p className="text-[10px] text-ash/80 font-mono leading-relaxed mb-1.5">
+                  An immersive <strong>speaking experience</strong> with Storm, Spin, and Swarm — challenging inner voices that push back, question assumptions, and call out blind spots. Speak freely and say "submit" when ready.
+                </p>
+                <p className="text-[9px] text-ash/50 font-mono italic">
+                  Text mode uses helpful agents. Game mode uses challenging agents.
+                </p>
+              </div>
+            </div>
+          </div>
+          
+          {/* Agent avatars - stacked with single green dot (always normal agents in text mode) */}
+          <div className="relative flex items-center bg-charcoal/60 rounded-full px-2 py-1.5 border border-smoke/30">
+            <div className="flex -space-x-2">
+              {AGENT_ORDER.map((agentId) => {
+                const agentConfig = AGENTS[agentId]; // Always normal agents in text mode
+                return (
+                  <div 
+                    key={agentId} 
+                    className="w-5 h-5 rounded-full overflow-hidden ring-2 ring-charcoal"
+                  >
+                    <img 
+                      src={agentConfig.avatar} 
+                      alt={agentConfig.name}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            {/* Single green active dot */}
+            <motion.div
+              className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-charcoal z-10"
+              style={{ backgroundColor: '#22C55E' }}
+              animate={{ opacity: [0.7, 1, 0.7] }}
+              transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+            />
           </div>
           
         </div>
@@ -1007,56 +1022,6 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
 
         {/* Right controls */}
         <div className="flex items-center gap-[4px] justify-end relative z-10">
-          {/* Disco mode toggle - next to governor */}
-          <div className="relative group/disco">
-            <motion.button
-              onClick={() => toggleDiscoMode()}
-              className={`flex items-center gap-1 px-2 py-1 rounded-full transition-all cursor-pointer ${
-                isDiscoMode
-                  ? 'bg-gradient-to-r from-amber-500/25 to-orange-500/25 border border-amber-400/70 text-amber-300 hover:from-amber-500/35 hover:to-orange-500/35'
-                  : 'bg-smoke/20 border border-smoke/40 text-ash/60 hover:bg-smoke/30 hover:text-ash'
-              }`}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              animate={isDiscoMode ? { 
-                boxShadow: ['0 0 0px rgba(234, 179, 8, 0)', '0 0 10px rgba(234, 179, 8, 0.4)', '0 0 0px rgba(234, 179, 8, 0)']
-              } : undefined}
-              transition={isDiscoMode ? { duration: 2, repeat: Infinity, ease: 'easeInOut' } : undefined}
-            >
-              <Sparkles className={`w-3 h-3 ${isDiscoMode ? 'animate-pulse' : ''}`} strokeWidth={2} />
-              <span className="text-[9px] font-mono font-medium tracking-wide">DISCO</span>
-              <kbd className={`px-1 py-0.5 rounded text-[8px] font-mono leading-none border ${
-                isDiscoMode
-                  ? 'bg-amber-500/20 border-amber-400/50 text-amber-300'
-                  : 'bg-smoke/30 border-smoke/40 text-ash/60'
-              }`}>⌘D</kbd>
-            </motion.button>
-            
-            {/* Hover tooltip */}
-            <div 
-              className="absolute top-full mt-2 right-0 px-3 py-2 bg-obsidian/95 border rounded-lg opacity-0 invisible group-hover/disco:opacity-100 group-hover/disco:visible transition-all shadow-xl w-[260px] z-50 pointer-events-auto"
-              style={{ borderColor: 'rgba(234, 179, 8, 0.4)' }}
-            >
-              <div className="flex items-center gap-2 mb-1.5">
-                <Sparkles className="w-3 h-3 text-amber-400" strokeWidth={2} />
-                <span className="text-xs font-sans font-medium text-amber-300">DISCO MODE</span>
-                <kbd className="px-1.5 py-0.5 bg-smoke/30 rounded border border-smoke/40 text-[8px] font-mono text-ash/60">⌘D</kbd>
-              </div>
-              <p className="text-[10px] text-ash/80 font-mono leading-relaxed mb-1.5">
-                In <strong>Normal Mode</strong>, agents are helpful and supportive. In <strong>Disco Mode</strong>, all agents become challenging and push back. They'll question your assumptions, call out blind spots, and engage in spirited debate.
-              </p>
-              <a
-                href="https://www.discoelysium.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 text-[9px] text-amber-400/80 hover:text-amber-300 font-mono italic transition-colors cursor-pointer"
-              >
-                <span>Inspired by Disco Elysium</span>
-                <ExternalLink className="w-2.5 h-2.5" strokeWidth={1.5} />
-              </a>
-            </div>
-          </div>
-          
           {/* Governor - opens settings */}
           <button
             onClick={onOpenSettings}
@@ -1152,7 +1117,7 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
               message={message}
               isLatest={index === messages.length - 1}
               governorIcon={governorIcon}
-              isDiscoMode={isDiscoMode}
+              isDiscoMode={false} // Text mode never uses disco
             />
           );
         })}
@@ -1160,7 +1125,7 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
         {/* Thinking indicator */}
         <AnimatePresence>
           {isLoading && (
-            <ThinkingIndicator agent={thinkingAgent} phase={thinkingPhase} isDisco={isDiscoMode} />
+            <ThinkingIndicator agent={thinkingAgent} phase={thinkingPhase} isDisco={false} />
           )}
         </AnimatePresence>
 
@@ -1169,7 +1134,24 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
 
       {/* Floating Input */}
       <div className="absolute bottom-3 left-1/2 -translate-x-1/2 w-3/4 max-w-5xl">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5">
+          {/* Copy conversation to clipboard button */}
+          <button
+            onClick={copyConversation}
+            disabled={messages.length === 0}
+            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-all border border-transparent hover:bg-charcoal/60 hover:border-smoke/30 ${
+              messages.length === 0 
+                ? 'text-ash/20 cursor-not-allowed' 
+                : copied 
+                  ? 'text-emerald-400'
+                  : 'text-ash/50 hover:text-emerald-400 cursor-pointer'
+            }`}
+            title="Copy conversation to clipboard (⌘C)"
+          >
+            {copied ? <ClipboardCheck size={16} /> : <ClipboardCopy size={16} />}
+            <kbd className="px-1.5 py-0.5 rounded-md text-ash/50 font-mono text-[10px]">⌘C</kbd>
+          </button>
+          
           {/* Input container with transcript overlay above */}
           <div className="flex-1 relative">
             {/* Transcription overlay - shows partial transcript while speaking */}
@@ -1218,7 +1200,7 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
                   }}
                 />
                 <img 
-                  src={governorIcon || defaultGovernorIcon} 
+                  src={userAvatar} 
                   alt="You"
                   className="w-7 h-7 rounded-full relative z-10"
                 />
@@ -1278,29 +1260,25 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
                 </span>
               </div>
             )}
-            {/* Enter hint - bottom right corner */}
-            <div className="absolute right-3 bottom-2.5 pointer-events-none">
+            {/* Enter hint - vertically centered right */}
+            <div className="absolute right-3 top-1/2 -translate-y-[calc(50%+1px)] pointer-events-none">
               <kbd className="px-1.5 py-0.5 bg-smoke/30 rounded-md text-ash/50 font-mono text-[10px] border border-smoke/40">↵ ENT</kbd>
             </div>
             </div>
           </div>
           
           {/* Microphone button - voice transcription */}
-          <motion.button
+          <button
             onClick={toggleTranscription}
-            className={`flex items-center gap-1.5 px-2 py-2 rounded-lg cursor-pointer ${
+            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-all cursor-pointer border border-transparent hover:bg-charcoal/60 hover:border-smoke/30 ${
               isTranscribing || isConnecting
                 ? 'text-amber-400' 
                 : 'text-ash/50 hover:text-ash'
             }`}
-            animate={isConnecting ? { opacity: [0.6, 1, 0.6] } : { opacity: 1 }}
-            transition={isConnecting ? { duration: 1.5, repeat: Infinity, ease: 'easeInOut' } : { duration: 0.2 }}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
             title={isTranscribing ? 'Stop transcription (⌘S)' : isConnecting ? 'Connecting...' : 'Start voice transcription (⌘S)'}
-          >
+            >
             <div className="relative">
-              <Mic className="w-5 h-5" strokeWidth={1.5} />
+              <VoiceSettings size={16} />
               {/* Amber dot when connected (not during connecting) */}
               {isTranscribing && (
                 <div 
@@ -1309,8 +1287,8 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
                 />
               )}
             </div>
-            <kbd className="text-[10px] font-mono text-ash/40">⌘S</kbd>
-          </motion.button>
+            <kbd className="px-1.5 py-0.5 rounded-md text-ash/50 font-mono text-[10px]">⌘S</kbd>
+          </button>
         </div>
         
         {/* Privacy notice */}
@@ -1335,6 +1313,11 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
           className="h-5 w-auto opacity-40 hover:opacity-100 transition-opacity duration-200"
         />
       </a>
+      
+      
+      {/* Immersive Mode */}
+      <ImmersiveMode />
+      
     </div>
   );
 }

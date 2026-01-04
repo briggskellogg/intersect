@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Calendar, Key, Info, ExternalLink } from 'lucide-react';
+import { Calendar, Info, ExternalLink, ApiKeyIcon } from './icons';
 import { useAppStore } from '../store';
 import { AGENTS } from '../constants/agents';
 import { 
   getUserProfile, 
   updatePoints,
+  updateDominantTrait,
   getActivePersonaProfile,
 } from '../hooks/useTauri';
 import { ApiKeyModal } from './ApiKeyModal';
@@ -293,7 +294,7 @@ function RadarChart({
             <div className="flex flex-col items-center gap-1.5 mt-2">
               <div className="flex items-center gap-1.5">
                 <span 
-                  className="text-[9px] font-mono px-1.5 py-0.5 rounded-full"
+                  className="text-[9px] font-sans px-1.5 py-0.5 rounded-full"
                   style={{ 
                     backgroundColor: `${AGENTS[id].color}20`,
                     color: AGENTS[id].color,
@@ -302,7 +303,7 @@ function RadarChart({
                   {typeLabels[id]}
                 </span>
                 <kbd 
-                  className="text-[8px] font-mono px-1 py-0.5 rounded bg-smoke/30 text-ash/50"
+                  className="text-[8px] font-sans px-1 py-0.5 rounded bg-smoke/30 text-ash/50"
                 >
                   ⌘{hotkey}
                 </kbd>
@@ -317,7 +318,7 @@ function RadarChart({
                       onPointChange(id, -1);
                     }}
                     disabled={localPoints[id] <= 2}
-                    className={`w-5 h-5 rounded border flex items-center justify-center transition-all font-mono text-[10px] ${
+                    className={`w-5 h-5 rounded border flex items-center justify-center transition-all font-sans text-[10px] ${
                       localPoints[id] > 2
                         ? 'border-ash/50 hover:border-ash/70 hover:bg-smoke/30 cursor-pointer active:scale-95'
                         : 'border-ash/20 opacity-30 cursor-not-allowed'
@@ -335,7 +336,7 @@ function RadarChart({
                       backgroundColor: `${AGENTS[id].color}15`,
                       borderColor: `${AGENTS[id].color}40`,
                       color: AGENTS[id].color,
-                      fontFamily: 'var(--font-mono)',
+                      fontFamily: 'var(--font-sans)',
                     }}
                   >
                     <span className="text-xs font-bold">{localPoints[id]}</span>
@@ -351,7 +352,7 @@ function RadarChart({
                       ((localPoints.instinct + localPoints.logic + localPoints.psyche) >= 12 &&
                       !(['instinct', 'logic', 'psyche'] as const).some(t => t !== id && localPoints[t] > 2))
                     }
-                    className={`w-5 h-5 rounded border flex items-center justify-center transition-all font-mono text-[10px] ${
+                    className={`w-5 h-5 rounded border flex items-center justify-center transition-all font-sans text-[10px] ${
                       localPoints[id] < 7 && (
                         (localPoints.instinct + localPoints.logic + localPoints.psyche) < 12 ||
                         (['instinct', 'logic', 'psyche'] as const).some(t => t !== id && localPoints[t] > 2)
@@ -549,14 +550,14 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
             {/* Header - Started date and ESC */}
             <div className="flex items-center justify-between px-4 py-2 border-b border-smoke/30 flex-shrink-0">
               {userProfile && (
-                <div className="flex items-center gap-2 text-[11px] text-ash/70 font-mono">
+                <div className="flex items-center gap-2 text-[11px] text-ash/70 font-sans">
                   <Calendar className="w-3.5 h-3.5 text-ash/50" strokeWidth={1.5} />
                   <span>Started {formatDate(userProfile.createdAt)}</span>
                 </div>
               )}
               <button
                 onClick={onClose}
-                className="px-2 py-1 rounded text-[9px] font-mono text-ash bg-smoke/30 hover:bg-smoke/50 border border-smoke/50 transition-colors cursor-pointer flex items-center justify-center"
+                className="px-2 py-1 rounded text-[9px] font-sans text-ash bg-smoke/30 hover:bg-smoke/50 border border-smoke/50 transition-colors cursor-pointer flex items-center justify-center"
               >
                 ESC
               </button>
@@ -567,12 +568,12 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
               {/* Archetypes Section */}
               <div className="mb-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <p className="text-[10px] font-mono text-ash/50 uppercase tracking-wider">Archetypes</p>
+                  <p className="text-[10px] font-sans text-ash/50 uppercase tracking-wider">Archetypes</p>
                   <a
                     href="https://www.discoelysium.com"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-[9px] text-amber-400/80 hover:text-amber-300 hover:bg-amber-500/20 hover:border-amber-500/50 font-mono transition-all cursor-pointer"
+                    className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-[9px] text-amber-400/80 hover:text-amber-300 hover:bg-amber-500/20 hover:border-amber-500/50 font-sans transition-all cursor-pointer"
                   >
                     <span>Inspired by Disco Elysium</span>
                     <ExternalLink className="w-2.5 h-2.5" strokeWidth={1.5} />
@@ -602,6 +603,8 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                               archetype.points.logic,
                               archetype.points.psyche
                             );
+                            // Update dominant trait
+                            await updateDominantTrait(archetype.dominant);
                             // Refresh profiles
                             const updatedProfile = await getUserProfile();
                             setUserProfile(updatedProfile);
@@ -681,11 +684,11 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                               ? 'text-emerald-400'
                               : 'text-amber-400'
                           }`}
-                          style={{ fontFamily: 'var(--font-mono)' }}
+                          style={{ fontFamily: 'var(--font-sans)' }}
                         >
                           {localPoints.instinct + localPoints.logic + localPoints.psyche}
                         </span>
-                        <span className="text-[10px] font-mono text-ash/40">
+                        <span className="text-[10px] font-sans text-ash/40">
                           / 12
                         </span>
                       </div>
@@ -697,7 +700,7 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                         <Info className="w-4 h-4 text-ash/50 hover:text-ash/70 transition-colors cursor-pointer" strokeWidth={1.5} />
                         {/* Tooltip */}
                         <div className="absolute left-0 top-full mt-2 z-50 w-64 px-3 py-2 bg-obsidian/95 backdrop-blur-xl border border-smoke/40 rounded-lg opacity-0 invisible group-hover/info:opacity-100 group-hover/info:visible transition-all shadow-xl pointer-events-none">
-                          <p className="text-[10px] text-ash/70 font-mono leading-relaxed">
+                          <p className="text-[10px] text-ash/70 font-sans leading-relaxed">
                             Adjust how the Governor thinks—give more points to the voices you want to hear most often. Choose your dominant trait to shape how the Governor sees and talks to you.
                           </p>
                         </div>
@@ -750,13 +753,13 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
             <div className="flex items-center justify-between px-4 py-3 border-t border-smoke/30 flex-shrink-0">
               <div className="flex items-center gap-1.5">
                 <img src={governorTransparent} alt="" className="w-4 h-4 opacity-60" />
-                <p className="text-xs text-ash/60 font-mono">Intersect v1.1.1</p>
+                <p className="text-xs text-ash/60 font-sans">Intersect v1.2.0</p>
               </div>
               <div className="flex items-center gap-2">
                 {userProfile?.apiKey && (
                   <span className="flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                    <span className="text-[10px] text-emerald-500/80 font-mono">Connected</span>
+                    <span className="text-[10px] text-emerald-500/80 font-sans">Connected</span>
                   </span>
                 )}
                 <button
@@ -764,8 +767,8 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                   className="flex items-center gap-1.5 px-1.5 py-0.5 rounded text-ash/60 hover:text-pearl hover:bg-smoke/30 transition-colors cursor-pointer"
                   title="Change API Key (⌘K)"
                 >
-                  <Key className="w-3.5 h-3.5" strokeWidth={1.5} />
-                  <kbd className="w-5 h-5 bg-smoke/30 rounded text-[9px] font-mono text-ash/50 border border-smoke/40 flex items-center justify-center">⌘K</kbd>
+                  <ApiKeyIcon size={14} className="flex-shrink-0" />
+                  <kbd className="w-5 h-5 bg-smoke/30 rounded text-[9px] font-sans text-ash/50 border border-smoke/40 flex items-center justify-center">⌘K</kbd>
                 </button>
               </div>
             </div>

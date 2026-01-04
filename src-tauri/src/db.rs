@@ -566,8 +566,13 @@ pub fn clear_anthropic_key() -> Result<()> {
 }
 
 /// Update points for the active persona profile
+/// NOTE: Points affect agent weightings but do NOT change the dominant_trait
+/// The dominant_trait is fixed per profile (selected when the profile is created/activated)
 pub fn update_points(instinct: i64, logic: i64, psyche: i64) -> Result<()> {
     let now = Utc::now().to_rfc3339();
+    
+    // Only update the points - do NOT change dominant_trait or secondary_trait
+    // Those are fixed properties of the profile identity
     with_connection(|conn| {
         conn.execute(
             "UPDATE persona_profiles SET instinct_points = ?1, logic_points = ?2, psyche_points = ?3, updated_at = ?4 WHERE is_active = 1",
@@ -1414,6 +1419,27 @@ pub fn update_persona_profile_name(profile_id: &str, new_name: &str) -> Result<(
         conn.execute(
             "UPDATE persona_profiles SET name = ?1, updated_at = ?2 WHERE id = ?3",
             params![new_name, now, profile_id]
+        )?;
+        Ok(())
+    })
+}
+
+/// Update the dominant trait for the active persona profile
+pub fn update_dominant_trait(dominant_trait: &str) -> Result<()> {
+    let now = Utc::now().to_rfc3339();
+    
+    // Derive secondary trait from dominant
+    let secondary = match dominant_trait {
+        "logic" => "instinct",
+        "instinct" => "psyche",
+        "psyche" => "logic",
+        _ => "logic",
+    };
+    
+    with_connection(|conn| {
+        conn.execute(
+            "UPDATE persona_profiles SET dominant_trait = ?1, secondary_trait = ?2, updated_at = ?3 WHERE is_active = 1",
+            params![dominant_trait, secondary, now]
         )?;
         Ok(())
     })

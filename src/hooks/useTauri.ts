@@ -83,6 +83,10 @@ export async function updatePoints(instinct: number, logic: number, psyche: numb
   await invoke('update_points', { instinct, logic, psyche });
 }
 
+export async function updateDominantTrait(dominantTrait: string): Promise<void> {
+  await invoke('update_dominant_trait', { dominantTrait });
+}
+
 // Persona Profiles (Multi-Profile System)
 interface RawPersonaProfile {
   id: string;
@@ -253,8 +257,8 @@ export interface ConversationOpenerResult {
 }
 
 // Conversation opener
-export async function getConversationOpener(): Promise<ConversationOpenerResult> {
-  return invoke<ConversationOpenerResult>('get_conversation_opener');
+export async function getConversationOpener(isVoiceMode?: boolean): Promise<ConversationOpenerResult> {
+  return invoke<ConversationOpenerResult>('get_conversation_opener', { isVoiceMode });
 }
 
 // Send message
@@ -381,5 +385,9 @@ export async function getGovernorDiscoImage(): Promise<string | null> {
 
 export async function getGovernorImage(): Promise<string | null> {
   return invoke<string | null>('get_governor_image');
+}
+
+export async function getGovernorSwirlingVideo(): Promise<string | null> {
+  return invoke<string | null>('get_governor_swirling_video');
 }
 

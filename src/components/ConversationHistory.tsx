@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageSquare, Sparkles, Trash2, Copy, Check } from 'lucide-react';
+import { MessageSquare, Sparkles, Trash2, Copy, Check } from './icons';
 import { Conversation } from '../types';
 import { getRecentConversations, deleteConversation } from '../hooks/useTauri';
 
@@ -194,13 +194,13 @@ export function ConversationHistory({
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-smoke/30 flex-shrink-0">
               <div className="inline-flex px-2.5 py-1 rounded-full bg-smoke/20 border border-smoke/40">
-                <h2 className="font-mono text-xs text-pearl font-medium uppercase tracking-wider">
+                <h2 className="font-sans text-xs text-pearl font-medium uppercase tracking-wider">
                   HISTORY
                 </h2>
               </div>
               <button
                 onClick={onClose}
-                className="px-2 py-1 rounded text-[9px] font-mono text-ash bg-smoke/30 hover:bg-smoke/50 border border-smoke/50 transition-colors cursor-pointer flex items-center justify-center"
+                className="px-2 py-1 rounded text-[9px] font-sans text-ash bg-smoke/30 hover:bg-smoke/50 border border-smoke/50 transition-colors cursor-pointer flex items-center justify-center"
                 title="Close (Esc)"
               >
                 ESC
@@ -211,12 +211,12 @@ export function ConversationHistory({
             <div ref={listRef} className="flex-1 overflow-y-auto px-3 py-3">
               {isLoading ? (
                 <div className="flex items-center justify-center py-8">
-                  <div className="text-ash/50 text-xs font-mono">Loading...</div>
+                  <div className="text-ash/50 text-xs font-sans">Loading...</div>
                 </div>
               ) : conversations.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <MessageSquare className="w-8 h-8 text-ash/30 mb-2" strokeWidth={1.5} />
-                  <div className="text-ash/50 text-xs font-mono">No conversations yet</div>
+                  <div className="text-ash/50 text-xs font-sans">No conversations yet</div>
                 </div>
               ) : (
                 <div className="space-y-1.5">
@@ -256,7 +256,7 @@ export function ConversationHistory({
                               {/* Title */}
                               <div className="flex items-center gap-2 mb-1">
                                 <div 
-                                  className={`inline-block px-2 py-0.5 rounded-full text-xs font-mono truncate max-w-full ${
+                                  className={`inline-block px-2 py-0.5 rounded-full text-xs font-sans truncate max-w-full ${
                                     isActive 
                                       ? 'bg-smoke/30 text-pearl border border-smoke/50' 
                                       : 'bg-smoke/20 text-ash/80 border border-smoke/30'
@@ -271,14 +271,14 @@ export function ConversationHistory({
                               
                               {/* Preview */}
                               {preview && (
-                                <div className="text-[10px] text-ash/50 font-mono line-clamp-2 mb-1">
+                                <div className="text-[10px] text-ash/50 font-sans line-clamp-2 mb-1">
                                   {preview}
                                 </div>
                               )}
                               
                               {/* Date and action buttons row */}
                               <div className="flex items-center justify-between gap-2">
-                                <div className="text-[9px] text-ash/40 font-mono">
+                                <div className="text-[9px] text-ash/40 font-sans">
                                   {formatDate(conv.updatedAt)}
                                 </div>
                                 
@@ -298,7 +298,7 @@ export function ConversationHistory({
                                     ) : (
                                       <Copy className="w-2.5 h-2.5" strokeWidth={2} />
                                     )}
-                                    <kbd className="text-[8px] font-mono text-ash/50">C</kbd>
+                                    <kbd className="text-[8px] font-sans text-ash/50">C</kbd>
                                   </button>
                                   
                                   {/* Delete button */}
@@ -311,7 +311,7 @@ export function ConversationHistory({
                                     title="Delete (D)"
                                   >
                                     <Trash2 className="w-2.5 h-2.5" strokeWidth={2} />
-                                    <kbd className="text-[8px] font-mono text-red-400/70">D</kbd>
+                                    <kbd className="text-[8px] font-sans text-red-400/70">D</kbd>
                                   </button>
                                 </div>
                               </div>
@@ -327,7 +327,7 @@ export function ConversationHistory({
 
             {/* Footer with keyboard hints */}
             {selectedId && !deleteConfirmId && (
-              <div className="px-4 py-2 border-t border-smoke/30 flex items-center justify-between text-[10px] text-ash/50 font-mono">
+              <div className="px-4 py-2 border-t border-smoke/30 flex items-center justify-between text-[10px] text-ash/50 font-sans">
                 <div className="flex items-center gap-3">
                   <span>Double-click to reopen</span>
                 </div>
@@ -378,14 +378,14 @@ export function ConversationHistory({
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={handleDeleteCancel}
-                          className="px-3 py-1.5 rounded-md border border-smoke/40 bg-smoke/20 hover:bg-smoke/30 text-ash/80 hover:text-pearl transition-colors text-xs font-mono flex items-center gap-1.5"
+                          className="px-3 py-1.5 rounded-md border border-smoke/40 bg-smoke/20 hover:bg-smoke/30 text-ash/80 hover:text-pearl transition-colors text-xs font-sans flex items-center gap-1.5"
                         >
                           Cancel
                           <kbd className="px-1 py-0.5 bg-smoke/30 rounded border border-smoke/40 text-[9px]">ESC</kbd>
                         </button>
                         <button
                           onClick={() => handleDeleteConfirm(deleteConfirmId)}
-                          className="px-3 py-1.5 rounded-md border border-red-500/40 bg-red-500/20 hover:bg-red-500/30 text-red-400 hover:text-red-300 transition-colors text-xs font-mono flex items-center gap-1.5"
+                          className="px-3 py-1.5 rounded-md border border-red-500/40 bg-red-500/20 hover:bg-red-500/30 text-red-400 hover:text-red-300 transition-colors text-xs font-sans flex items-center gap-1.5"
                         >
                           Delete
                           <kbd className="px-1 py-0.5 bg-red-500/30 rounded border border-red-500/40 text-[9px]">END</kbd>

@@ -34,13 +34,17 @@ export function MessageBubble({ message, isLatest: _isLatest, governorIcon, isDi
   
   
   // Typewriter effect for agent messages and governor thoughts
-  const [displayedText, setDisplayedText] = useState(() => isUser ? message.content : '');
-  const [isTyping, setIsTyping] = useState(() => !isUser);
+  // Skip typing if message is older than 2 seconds (e.g. returning from immersive mode)
+  const isOldMessage = Date.now() - new Date(message.timestamp).getTime() > 2000;
+  const shouldSkipTyping = isUser || isOldMessage;
+  
+  const [displayedText, setDisplayedText] = useState(() => shouldSkipTyping ? message.content : '');
+  const [isTyping, setIsTyping] = useState(() => !shouldSkipTyping);
   const messageIdRef = useRef(message.id);
   
   useEffect(() => {
-    // Skip typing effect for user messages only
-    if (isUser) {
+    // Skip typing effect for user messages or old messages
+    if (shouldSkipTyping) {
       setDisplayedText(message.content);
       setIsTyping(false);
       return;
@@ -118,7 +122,7 @@ export function MessageBubble({ message, isLatest: _isLatest, governorIcon, isDi
         {/* Agent avatar - aligned with name tag (slight offset from top) */}
         {agent && (
           <div className="relative flex-shrink-0 mt-[7px]">
-            <div className="w-8 h-8 rounded-full overflow-hidden">
+            <div className={`${isGovernorThoughts ? 'w-9 h-9' : 'w-8 h-8'} rounded-full overflow-hidden`}>
               <img 
                 src={agent.avatar} 
                 alt={agent.name}
@@ -194,7 +198,7 @@ export function MessageBubble({ message, isLatest: _isLatest, governorIcon, isDi
                   : null;
                 return agent ? (
                   <span 
-                    className="inline-block px-2 py-0.5 rounded text-[10px] font-mono font-medium opacity-80"
+                    className="inline-block px-2 py-0.5 rounded text-[11px] font-mono font-medium opacity-90"
                     style={{ 
                       backgroundColor: `${agent.color}20`,
                       color: agent.color,
@@ -204,7 +208,7 @@ export function MessageBubble({ message, isLatest: _isLatest, governorIcon, isDi
                   </span>
                 ) : (
                   <span 
-                    className="inline-block px-2 py-0.5 rounded text-[10px] font-mono font-medium opacity-70"
+                    className="inline-block px-2 py-0.5 rounded text-[11px] font-mono font-medium opacity-80"
                     style={{ 
                       backgroundColor: `${GOVERNOR.color}15`,
                       color: GOVERNOR.color,
@@ -249,7 +253,7 @@ export function MessageBubble({ message, isLatest: _isLatest, governorIcon, isDi
           
           <div 
             className={`leading-snug text-[13px] font-mono prose prose-invert prose-sm max-w-none prose-p:my-2 prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-headings:my-1.5 prose-strong:font-semibold prose-code:bg-smoke/30 prose-code:px-1 prose-code:rounded prose-code:text-[12px] ${
-              isGovernorThoughts ? 'italic text-ash/60 text-[12px]' : isLightMode ? 'text-pearl' : ''
+              isGovernorThoughts ? 'italic text-ash/70' : isLightMode ? 'text-pearl' : ''
             }`}
             style={
               !isUser && agent && !isLightMode

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X } from 'lucide-react';
+import { X } from './icons';
 import { GOVERNOR } from '../constants/agents';
 
 interface GovernorNotificationProps {
@@ -106,31 +106,31 @@ export function GovernorNotification({ message, isVisible, onDismiss, actionLabe
             {/* Content */}
             <div className="px-3 py-2">
               {phase === 'thinking' ? (
-                <p className="text-[11px] text-ash/60 font-mono">Thinking...</p>
+                <p className="text-[11px] text-ash/60 font-sans">Thinking...</p>
               ) : (
                 <>
                   {/* Special handling for ElevenLabs key prompt */}
                   {message === 'elevenlabs_key_prompt' ? (
-                    <p className="text-[11px] text-pearl/90 font-mono leading-relaxed">
+                    <p className="text-[11px] text-pearl/90 font-sans leading-relaxed">
                       Go to your profile and click{' '}
-                      <kbd className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-charcoal/80 border border-smoke/50 rounded text-[10px] font-mono text-ash/80 mx-0.5">
+                      <kbd className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-charcoal/80 border border-smoke/50 rounded text-[10px] font-sans text-ash/80 mx-0.5">
                         <span className="text-[9px]">⌘</span>K
                       </kbd>{' '}
                       to add your ElevenLabs API key for voice transcription.
                     </p>
                   ) : (
-                    <p className="text-[11px] text-pearl/90 font-mono leading-relaxed">
+                    <p className="text-[11px] text-pearl/90 font-sans leading-relaxed">
                       {message}
                     </p>
                   )}
                   {actionLabel && onAction && (
                     <button
                       onClick={handleAction}
-                      className="mt-2.5 w-full px-3 py-2 text-[10px] font-mono font-medium rounded-lg bg-aurora/20 text-aurora hover:bg-aurora/30 transition-colors cursor-pointer flex items-center justify-center gap-2"
+                      className="mt-2.5 w-full px-3 py-2 text-[10px] font-sans font-medium rounded-lg bg-aurora/20 text-aurora hover:bg-aurora/30 transition-colors cursor-pointer flex items-center justify-center gap-2"
                     >
                       {actionLabel}
                       {actionLabel === 'Open Profile' && (
-                        <kbd className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-charcoal/80 border border-smoke/50 rounded text-[9px] font-mono text-ash/80">
+                        <kbd className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-charcoal/80 border border-smoke/50 rounded text-[9px] font-sans text-ash/80">
                           <span className="text-[8px]">⌘</span>P
                         </kbd>
                       )}

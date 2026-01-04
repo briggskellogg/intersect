@@ -81,6 +81,43 @@ interface AppState {
   // ElevenLabs API key (for voice transcription)
   elevenLabsApiKey: string | null;
   setElevenLabsApiKey: (key: string | null) => void;
+  
+  // Immersive mode
+  isImmersiveMode: boolean;
+  setImmersiveMode: (immersive: boolean) => void;
+  
+  // Immersive mode voice settings (ElevenLabs voice IDs)
+  immersiveVoices: {
+    instinct: string | null;
+    logic: string | null;
+    psyche: string | null;
+    governor: string | null;
+    thoughtsDisco: string | null;
+  };
+  setImmersiveVoice: (agent: 'instinct' | 'logic' | 'psyche' | 'governor' | 'thoughtsDisco', voiceId: string | null) => void;
+  
+  // Immersive mode turn state
+  immersiveTurn: 'user' | 'ai';
+  setImmersiveTurn: (turn: 'user' | 'ai') => void;
+  
+  // Thoughts voice mute state
+  isThoughtsMuted: boolean;
+  toggleThoughtsMuted: () => void;
+  
+  // Last immersive conversation for export
+  lastImmersiveConversationId: string | null;
+  setLastImmersiveConversationId: (id: string | null) => void;
+  lastImmersiveMessages: Message[];
+  setLastImmersiveMessages: (messages: Message[]) => void;
+  
+  // Background music for immersive mode
+  backgroundMusic: { id: string; name: string; dataUrl: string }[];
+  addBackgroundMusic: (track: { id: string; name: string; dataUrl: string }) => void;
+  removeBackgroundMusic: (id: string) => void;
+  backgroundMusicEnabled: boolean;
+  setBackgroundMusicEnabled: (enabled: boolean) => void;
+  backgroundMusicVolume: number;
+  setBackgroundMusicVolume: (volume: number) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -260,5 +297,126 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.error('Failed to persist ElevenLabs API key:', e);
     }
     set({ elevenLabsApiKey });
+  },
+  
+  // Immersive mode
+  isImmersiveMode: false,
+  setImmersiveMode: (isImmersiveMode) => set({ isImmersiveMode }),
+  
+  // Immersive mode voice settings - persisted to localStorage
+  immersiveVoices: (() => {
+    try {
+      const stored = localStorage.getItem('immersive-voices');
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch {
+      // ignore
+    }
+    return {
+      instinct: null,
+      logic: null,
+      psyche: null,
+      governor: null,
+      thoughtsDisco: null,
+    };
+  })(),
+  setImmersiveVoice: (agent, voiceId) => {
+    set((state) => {
+      const newVoices = {
+        ...state.immersiveVoices,
+        [agent]: voiceId,
+      };
+      try {
+        localStorage.setItem('immersive-voices', JSON.stringify(newVoices));
+      } catch (e) {
+        console.error('Failed to persist immersive voices:', e);
+      }
+      return { immersiveVoices: newVoices };
+    });
+  },
+  
+  // Immersive mode turn state
+  immersiveTurn: 'user',
+  setImmersiveTurn: (immersiveTurn) => set({ immersiveTurn }),
+  
+  // Thoughts voice mute state
+  isThoughtsMuted: false,
+  toggleThoughtsMuted: () => set((state) => ({ isThoughtsMuted: !state.isThoughtsMuted })),
+  
+  // Last immersive conversation for export
+  lastImmersiveConversationId: null,
+  setLastImmersiveConversationId: (id) => set({ lastImmersiveConversationId: id }),
+  lastImmersiveMessages: [],
+  setLastImmersiveMessages: (messages) => set({ lastImmersiveMessages: messages }),
+  
+  // Background music for immersive mode - persisted to localStorage
+  backgroundMusic: (() => {
+    try {
+      const stored = localStorage.getItem('immersive-background-music');
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (e) {
+      console.error('Failed to load background music:', e);
+    }
+    return [];
+  })(),
+  addBackgroundMusic: (track) => {
+    set((state) => {
+      if (state.backgroundMusic.length >= 10) {
+        console.warn('Maximum 10 tracks allowed');
+        return state;
+      }
+      const newTracks = [...state.backgroundMusic, track];
+      try {
+        localStorage.setItem('immersive-background-music', JSON.stringify(newTracks));
+      } catch (e) {
+        console.error('Failed to persist background music:', e);
+      }
+      return { backgroundMusic: newTracks };
+    });
+  },
+  removeBackgroundMusic: (id) => {
+    set((state) => {
+      const newTracks = state.backgroundMusic.filter(t => t.id !== id);
+      try {
+        localStorage.setItem('immersive-background-music', JSON.stringify(newTracks));
+      } catch (e) {
+        console.error('Failed to persist background music:', e);
+      }
+      return { backgroundMusic: newTracks };
+    });
+  },
+  backgroundMusicEnabled: (() => {
+    try {
+      return localStorage.getItem('immersive-music-enabled') === 'true';
+    } catch {
+      return false;
+    }
+  })(),
+  setBackgroundMusicEnabled: (enabled) => {
+    try {
+      localStorage.setItem('immersive-music-enabled', String(enabled));
+    } catch (e) {
+      console.error('Failed to persist music enabled:', e);
+    }
+    set({ backgroundMusicEnabled: enabled });
+  },
+  backgroundMusicVolume: (() => {
+    try {
+      const stored = localStorage.getItem('immersive-music-volume');
+      return stored ? parseFloat(stored) : 0.3;
+    } catch {
+      return 0.3;
+    }
+  })(),
+  setBackgroundMusicVolume: (volume) => {
+    try {
+      localStorage.setItem('immersive-music-volume', String(volume));
+    } catch (e) {
+      console.error('Failed to persist music volume:', e);
+    }
+    set({ backgroundMusicVolume: volume });
   },
 }));

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Loader2, ChevronRight, ExternalLink } from 'lucide-react';
+import { Loader2, ChevronRight, ExternalLink } from './icons';
 import { useAppStore } from '../store';
 import { getMemoryStats, MemoryStats, getAllPersonaProfiles, generateGovernorReport, generateUserSummary } from '../hooks/useTauri';
 import { PersonaProfile } from '../types';
@@ -251,30 +251,30 @@ export function ReportModal({ isOpen, onClose, onOpenApiModal }: ReportModalProp
                         {activeAgentCount > 1 ? (
                           <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-500/20 cursor-default">
                             <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                            <span className="text-[9px] font-mono text-amber-400">Routing</span>
+                            <span className="text-[9px] font-sans text-amber-400">Routing</span>
                           </span>
                         ) : (
                           <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-ash/10 cursor-default">
                             <span className="w-1.5 h-1.5 rounded-full bg-ash/40" />
-                            <span className="text-[9px] font-mono text-ash/60">Direct</span>
+                            <span className="text-[9px] font-sans text-ash/60">Direct</span>
                           </span>
                         )}
                         {/* Hover tooltip - stays open when mouse moves into it */}
                         <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1 w-64 p-3 bg-obsidian border border-smoke/40 rounded-xl shadow-xl opacity-0 invisible group-hover/routing:opacity-100 group-hover/routing:visible transition-all duration-200 z-50">
-                          <p className="text-[11px] text-ash/70 font-mono leading-relaxed mb-2">
+                          <p className="text-[11px] text-ash/70 font-sans leading-relaxed mb-2">
                             {activeAgentCount > 1 
                               ? 'Governor is routing — orchestrates agent turn-taking and prevents cognitive overload for both human and machine.'
                               : 'Governor not routing — in single-agent mode, the Governor has no need to orchestrate.'
                             }
                           </p>
-                          <p className="text-[10px] text-ash/50 font-mono mb-2">
+                          <p className="text-[10px] text-ash/50 font-sans mb-2">
                             Also manages your personalized knowledge-base.
                           </p>
                           <a 
                             href="https://chuck-nbc.fandom.com/wiki/The_Governor"
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-[10px] text-aurora/60 hover:text-aurora font-mono transition-colors cursor-pointer"
+                            className="inline-flex items-center gap-1 text-[10px] text-aurora/60 hover:text-aurora font-sans transition-colors cursor-pointer"
                           >
                             <ExternalLink className="w-2.5 h-2.5" strokeWidth={1.5} />
                             Reference: The Governor in Chuck
@@ -282,7 +282,7 @@ export function ReportModal({ isOpen, onClose, onOpenApiModal }: ReportModalProp
                         </div>
                       </div>
                     </div>
-                    <p className="text-[10px] text-ash/50 font-mono mt-0.5">
+                    <p className="text-[10px] text-ash/50 font-sans mt-0.5">
                       {activeAgentCount > 1 ? 'Multi-agent orchestration active' : 'Single-agent mode'}
                     </p>
                   </div>
@@ -290,7 +290,7 @@ export function ReportModal({ isOpen, onClose, onOpenApiModal }: ReportModalProp
                   {/* Right: ESC button */}
                   <button
                     onClick={onClose}
-                    className="px-1.5 py-1 rounded text-[10px] font-mono text-ash bg-smoke/30 hover:bg-smoke/50 border border-smoke/50 transition-colors cursor-pointer flex-shrink-0"
+                    className="px-1.5 py-1 rounded text-[10px] font-sans text-ash bg-smoke/30 hover:bg-smoke/50 border border-smoke/50 transition-colors cursor-pointer flex-shrink-0"
                   >
                     ESC
                   </button>
@@ -309,14 +309,14 @@ export function ReportModal({ isOpen, onClose, onOpenApiModal }: ReportModalProp
                     <button
                       key={tab.id}
                       onClick={() => setActiveTab(tab.id)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-mono transition-all cursor-pointer ${
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-sans transition-all cursor-pointer ${
                         activeTab === tab.id
                           ? 'bg-smoke/40 text-pearl'
                           : 'text-ash/60 hover:text-ash hover:bg-smoke/20'
                       }`}
                     >
                       {tab.label}
-                      <kbd className={`px-1 py-0.5 rounded text-[9px] font-mono leading-none border ${
+                      <kbd className={`px-1 py-0.5 rounded text-[9px] font-sans leading-none border ${
                         activeTab === tab.id
                           ? 'bg-smoke/30 text-ash/80 border-smoke/50'
                           : 'bg-smoke/20 text-ash/40 border-smoke/30'
@@ -332,9 +332,9 @@ export function ReportModal({ isOpen, onClose, onOpenApiModal }: ReportModalProp
                 {activeTab === 'overview' && (
                 <div className="px-6 py-5">
                   <div className="flex items-center justify-between mb-4">
-                    <span className="text-xs font-mono text-ash/50 uppercase tracking-wide">Overview</span>
+                    <span className="text-xs font-sans text-ash/50 uppercase tracking-wide">Overview</span>
                     {lastUpdated && (
-                      <span className="text-[10px] text-ash/40 font-mono">
+                      <span className="text-[10px] text-ash/40 font-sans">
                         Updated on {formatDate(lastUpdated)}
                       </span>
                     )}
@@ -342,10 +342,10 @@ export function ReportModal({ isOpen, onClose, onOpenApiModal }: ReportModalProp
                   {isGenerating ? (
                     <div className="flex items-center gap-3 py-10 justify-center">
                       <Loader2 className="w-5 h-5 text-aurora animate-spin" strokeWidth={1.5} />
-                      <span className="text-sm text-ash/60 font-mono">Compiling observations...</span>
+                      <span className="text-sm text-ash/60 font-sans">Compiling observations...</span>
                     </div>
                   ) : (
-                    <p className="text-[13px] text-pearl/80 font-mono leading-relaxed">
+                    <p className="text-[13px] text-pearl/80 font-sans leading-relaxed">
                       {overallReport}
                     </p>
                   )}
@@ -355,14 +355,14 @@ export function ReportModal({ isOpen, onClose, onOpenApiModal }: ReportModalProp
                 {/* Profiles Tab */}
                 {activeTab === 'profiles' && (
                   <div className="px-6 py-5">
-                    <span className="text-xs font-mono text-ash/50 uppercase tracking-wide block mb-3">Profile Insights</span>
+                    <span className="text-xs font-sans text-ash/50 uppercase tracking-wide block mb-3">Profile Insights</span>
                     {isGenerating ? (
                       <div className="flex items-center gap-3 py-10 justify-center">
                         <Loader2 className="w-5 h-5 text-aurora animate-spin" strokeWidth={1.5} />
-                        <span className="text-sm text-ash/60 font-mono">Loading profiles...</span>
+                        <span className="text-sm text-ash/60 font-sans">Loading profiles...</span>
                       </div>
                     ) : profileReports.length === 0 ? (
-                      <p className="text-[12px] text-ash/60 font-mono italic py-4">
+                      <p className="text-[12px] text-ash/60 font-sans italic py-4">
                         No profile insights yet. Chat with different agents to build up their understanding of you.
                       </p>
                     ) : (
@@ -385,20 +385,20 @@ export function ReportModal({ isOpen, onClose, onOpenApiModal }: ReportModalProp
                           <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-2">
                               <span 
-                                className="text-sm font-mono font-medium"
+                                className="text-sm font-sans font-medium"
                                 style={{ color: traitColor }}
                               >
                                 {pr.name}
                               </span>
-                              <span className="text-[9px] font-mono text-ash/40 uppercase">
+                              <span className="text-[9px] font-sans text-ash/40 uppercase">
                                 {pr.dominantTrait}
                               </span>
                             </div>
-                            <span className="text-[10px] font-mono text-ash/50">
+                            <span className="text-[10px] font-sans text-ash/50">
                               {profile?.messageCount || 0} messages
                             </span>
                           </div>
-                          <p className="text-[12px] text-pearl/70 font-mono leading-relaxed">
+                          <p className="text-[12px] text-pearl/70 font-sans leading-relaxed">
                             {pr.report}
                           </p>
                         </motion.div>
@@ -416,11 +416,11 @@ export function ReportModal({ isOpen, onClose, onOpenApiModal }: ReportModalProp
                     <div className="mb-8">
                     <div className="flex items-center gap-1.5 mb-4">
                       <div className="w-1 h-3 rounded-full" style={{ backgroundColor: '#00D4FF' }} />
-                      <span className="text-[10px] text-ash/60 font-mono uppercase tracking-wide">Patterns observed</span>
+                      <span className="text-[10px] text-ash/60 font-sans uppercase tracking-wide">Patterns observed</span>
                     </div>
                     <div className="space-y-3">
                       {!memoryStats || memoryStats.topPatterns.length === 0 ? (
-                        <p className="text-[11px] text-ash/50 font-mono italic px-4 py-3">
+                        <p className="text-[11px] text-ash/50 font-sans italic px-4 py-3">
                           No patterns detected yet — keep chatting and I'll start picking up on your tendencies.
                         </p>
                       ) : memoryStats.topPatterns.slice(0, 3).map((pattern, i) => {
@@ -434,12 +434,12 @@ export function ReportModal({ isOpen, onClose, onOpenApiModal }: ReportModalProp
                               <div className="flex items-center justify-between">
                                 <div className="flex-1">
                                   <span 
-                                    className="inline-block px-1.5 py-0.5 rounded text-[8px] font-mono font-medium uppercase mb-2"
+                                    className="inline-block px-1.5 py-0.5 rounded text-[8px] font-sans font-medium uppercase mb-2"
                                     style={{ backgroundColor: '#00D4FF20', color: '#00D4FF' }}
                                   >
                                     {pattern.patternType.replace(/_/g, ' ')}
                                   </span>
-                                  <p className="text-[11px] text-pearl/70 font-mono leading-relaxed">{pattern.description}</p>
+                                  <p className="text-[11px] text-pearl/70 font-sans leading-relaxed">{pattern.description}</p>
                                 </div>
                                 <ChevronRight 
                                   className={`w-4 h-4 text-ash/40 group-hover:text-pearl/60 transition-transform ml-3 ${isExpanded ? 'rotate-90' : ''}`} 
@@ -459,10 +459,10 @@ export function ReportModal({ isOpen, onClose, onOpenApiModal }: ReportModalProp
                                     {isSummarizing ? (
                                       <div className="flex items-center gap-2">
                                         <Loader2 className="w-3 h-3 text-psyche animate-spin" />
-                                        <span className="text-[10px] text-ash/50 font-mono">Governor is thinking...</span>
+                                        <span className="text-[10px] text-ash/50 font-sans">Governor is thinking...</span>
                                       </div>
                                     ) : (
-                                      <p className="text-[11px] text-ash/70 font-mono leading-relaxed">{itemSummary}</p>
+                                      <p className="text-[11px] text-ash/70 font-sans leading-relaxed">{itemSummary}</p>
                                     )}
                                   </div>
                                 </motion.div>
@@ -478,11 +478,11 @@ export function ReportModal({ isOpen, onClose, onOpenApiModal }: ReportModalProp
                     <div>
                     <div className="flex items-center gap-1.5 mb-4">
                       <div className="w-1 h-3 rounded-full" style={{ backgroundColor: '#E040FB' }} />
-                      <span className="text-[10px] text-ash/60 font-mono uppercase tracking-wide">Recurring themes</span>
+                      <span className="text-[10px] text-ash/60 font-sans uppercase tracking-wide">Recurring themes</span>
                     </div>
                     <div className="flex flex-wrap gap-2.5">
                       {!memoryStats || memoryStats.topThemes.length === 0 ? (
-                        <p className="text-[11px] text-ash/50 font-mono italic">
+                        <p className="text-[11px] text-ash/50 font-sans italic">
                           No recurring themes yet — the more we talk, the more I'll notice what keeps coming up.
                         </p>
                       ) : memoryStats.topThemes.slice(0, 6).map((theme, i) => {
@@ -491,7 +491,7 @@ export function ReportModal({ isOpen, onClose, onOpenApiModal }: ReportModalProp
                           <div key={i} className="relative">
                             <button
                               onClick={() => handleItemClick('theme', String(i), theme)}
-                              className={`px-4 py-2 rounded-full text-[11px] font-mono transition-all cursor-pointer ${
+                              className={`px-4 py-2 rounded-full text-[11px] font-sans transition-all cursor-pointer ${
                                 isExpanded 
                                   ? 'bg-instinct/20 border-instinct/40' 
                                   : 'hover:bg-charcoal/60'
@@ -521,10 +521,10 @@ export function ReportModal({ isOpen, onClose, onOpenApiModal }: ReportModalProp
                             {isSummarizing ? (
                               <div className="flex items-center gap-2">
                                 <Loader2 className="w-3 h-3 text-instinct animate-spin" />
-                                <span className="text-[10px] text-ash/50 font-mono">Governor is thinking...</span>
+                                <span className="text-[10px] text-ash/50 font-sans">Governor is thinking...</span>
                               </div>
                             ) : (
-                              <p className="text-[11px] text-ash/70 font-mono leading-relaxed">{itemSummary}</p>
+                              <p className="text-[11px] text-ash/70 font-sans leading-relaxed">{itemSummary}</p>
                             )}
                           </div>
                         </motion.div>
@@ -539,12 +539,12 @@ export function ReportModal({ isOpen, onClose, onOpenApiModal }: ReportModalProp
                   <div className="px-6 py-5">
                     <div className="flex items-center gap-1.5 mb-4">
                       <div className="w-1 h-3 rounded-full" style={{ backgroundColor: '#EF4444' }} />
-                      <span className="text-[10px] text-ash/60 font-mono uppercase tracking-wide">Vibe Check</span>
+                      <span className="text-[10px] text-ash/60 font-sans uppercase tracking-wide">Vibe Check</span>
                     </div>
                     {isGenerating ? (
                       <div className="flex items-center gap-3 py-10 justify-center">
                         <Loader2 className="w-5 h-5 text-aurora animate-spin" strokeWidth={1.5} />
-                        <span className="text-sm text-ash/60 font-mono">Compiling vibe...</span>
+                        <span className="text-sm text-ash/60 font-sans">Compiling vibe...</span>
                       </div>
                     ) : userSummary ? (
                       <div 
@@ -554,12 +554,12 @@ export function ReportModal({ isOpen, onClose, onOpenApiModal }: ReportModalProp
                           borderColor: '#EF4444',
                         }}
                       >
-                        <p className="text-[13px] text-pearl/90 font-mono leading-relaxed italic">
+                        <p className="text-[13px] text-pearl/90 font-sans leading-relaxed italic">
                           "{userSummary}"
                         </p>
                       </div>
                     ) : (
-                      <p className="text-[12px] text-ash/60 font-mono italic py-4">
+                      <p className="text-[12px] text-ash/60 font-sans italic py-4">
                         Not enough to vibe check yet — keep chatting and I'll get a read on you.
                       </p>
                     )}
@@ -571,7 +571,7 @@ export function ReportModal({ isOpen, onClose, onOpenApiModal }: ReportModalProp
               {/* Stats footer */}
               {showDetails && memoryStats && (
                 <div className="px-5 py-3 border-t border-smoke/20 flex-shrink-0">
-                  <div className="flex items-center justify-between text-[10px] font-mono text-ash/50">
+                  <div className="flex items-center justify-between text-[10px] font-sans text-ash/50">
                     <div className="flex items-center gap-3">
                       <span>{memoryStats.factCount} facts learned</span>
                       <span className="text-ash/30">|</span>

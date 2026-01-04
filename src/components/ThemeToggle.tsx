@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Sun, Moon, Monitor } from 'lucide-react';
+import { Sun, Moon, Monitor } from './icons';
 import { useAppStore, Theme } from '../store';
 
 export function ThemeToggle() {
