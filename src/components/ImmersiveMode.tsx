@@ -138,10 +138,12 @@ export function ImmersiveMode() {
   const governorRef = useRef<HTMLDivElement>(null);
   const thoughtsPanelRef = useRef<HTMLDivElement>(null);
   const thoughtsEndRef = useRef<HTMLDivElement>(null);
+  const dialogScrollRef = useRef<HTMLDivElement>(null);
   const skipToGovernorRef = useRef(false);
   const skipCurrentThoughtRef = useRef(false);
   const currentThoughtsRef = useRef<ThoughtState[]>([]);
   const hasInitializedRef = useRef(false);
+  const isNearBottomRef = useRef(true); // Track if user is at/near bottom
 
   // Copy voice mode conversation to clipboard
   const copyVoiceConversation = useCallback(async () => {
@@ -828,12 +830,27 @@ export function ImmersiveMode() {
     }
   }, [isImmersiveMode, scribe, tts, stopThinkingAudio]);
 
-  // Auto-scroll thoughts panel when new thoughts appear
+  // Track if user is near bottom of scroll container
   useEffect(() => {
-    if (thoughtsEndRef.current) {
+    const container = dialogScrollRef.current;
+    if (!container) return;
+    
+    const handleScroll = () => {
+      const threshold = 100; // pixels from bottom to consider "at bottom"
+      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < threshold;
+      isNearBottomRef.current = isNearBottom;
+    };
+    
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, []);
+  
+  // Auto-scroll thoughts panel when new thoughts appear, but only if user is near bottom
+  useEffect(() => {
+    if (thoughtsEndRef.current && isNearBottomRef.current) {
       thoughtsEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [currentThoughts, dialogHistory]);
+  }, [currentThoughts, dialogHistory, currentGovernorText]);
 
 
   if (!isImmersiveMode) return null;
@@ -1009,7 +1026,7 @@ export function ImmersiveMode() {
           </div>
           
           {/* Dialog Stream - shows history + current */}
-          <div className="flex-1 overflow-y-auto rounded-b-xl bg-slate-900/40 backdrop-blur-sm border border-slate-700/30 border-t-0">
+          <div ref={dialogScrollRef} className="flex-1 overflow-y-auto rounded-b-xl bg-slate-900/40 backdrop-blur-sm border border-slate-700/30 border-t-0">
             {dialogHistory.length === 0 && currentThoughts.length === 0 && !isThinking && !currentGovernorText && (
               <div className="flex items-center justify-center h-full text-slate-600 text-xs">
                 Conversation will appear here...

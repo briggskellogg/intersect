@@ -343,15 +343,16 @@ function VoiceRow({ label, sublabel, avatars, value, onChange, isPreviewing, can
       {/* Label and input */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 mb-1">
-          {isDisco && (
+          {isDisco ? (
             <span className="px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[9px] font-medium border border-amber-500/30">
-              DISCO
+              {sublabel}
             </span>
+          ) : (
+            <>
+              {label && <span className="text-xs font-medium text-slate-300">{label}</span>}
+              <span className="text-[9px] text-slate-600">{sublabel}</span>
+            </>
           )}
-          {label && !isDisco && (
-            <span className="text-xs font-medium text-slate-300">{label}</span>
-          )}
-          <span className="text-[9px] text-slate-600">{sublabel}</span>
         </div>
         <input
           type="text"
