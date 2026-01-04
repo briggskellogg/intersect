@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Calendar, Info, ExternalLink, ApiKeyIcon } from './icons';
+import { Calendar, Info, ExternalLink, ApiKeyIcon, RefreshCw } from './icons';
 import { useAppStore } from '../store';
 import { AGENTS } from '../constants/agents';
 import { 
@@ -8,6 +8,9 @@ import {
   updatePoints,
   updateDominantTrait,
   getActivePersonaProfile,
+  resetPersonalization,
+  createConversation,
+  getConversationOpener,
 } from '../hooks/useTauri';
 import { ApiKeyModal } from './ApiKeyModal';
 import governorTransparent from '../assets/governor-transparent.png';
@@ -60,8 +63,8 @@ interface SettingsProps {
 }
 
 interface RadarChartProps {
-  weights: { instinct: number; logic: number; psyche: number };
-  targetWeights?: { instinct: number; logic: number; psyche: number };
+  weights: { instinct: number; logic: number; psyche: number }; // Points-based (what user sets)
+  learnedWeights?: { instinct: number; logic: number; psyche: number }; // What Intersect learned
   localPoints?: { instinct: number; logic: number; psyche: number };
   onPointChange?: (trait: 'instinct' | 'logic' | 'psyche', delta: number) => void;
   selectedDominantTrait?: 'instinct' | 'logic' | 'psyche' | null;
@@ -71,7 +74,7 @@ interface RadarChartProps {
 // Radar chart component for agent weights with profile pictures
 function RadarChart({ 
   weights, 
-  targetWeights: _targetWeights,
+  learnedWeights,
   localPoints,
   onPointChange,
   selectedDominantTrait,
@@ -133,12 +136,25 @@ function RadarChart({
     psyche: normalizeWeight(weights.psyche),
   };
   
-  // Data points using normalized weights
+  // Data points using normalized weights (points-based - what user sets)
   const instinctPoint = getPoint('instinct', normalizedWeights.instinct);
   const logicPoint = getPoint('logic', normalizedWeights.logic);
   const psychePoint = getPoint('psyche', normalizedWeights.psyche);
   
   const dataPath = `M ${logicPoint.x} ${logicPoint.y} L ${psychePoint.x} ${psychePoint.y} L ${instinctPoint.x} ${instinctPoint.y} Z`;
+  
+  // Learned weights triangle (what Intersect learned - dotted)
+  const learnedPath = learnedWeights ? (() => {
+    const normalizedLearned = {
+      instinct: normalizeWeight(learnedWeights.instinct),
+      logic: normalizeWeight(learnedWeights.logic),
+      psyche: normalizeWeight(learnedWeights.psyche),
+    };
+    const lInstinct = getPoint('instinct', normalizedLearned.instinct);
+    const lLogic = getPoint('logic', normalizedLearned.logic);
+    const lPsyche = getPoint('psyche', normalizedLearned.psyche);
+    return `M ${lLogic.x} ${lLogic.y} L ${lPsyche.x} ${lPsyche.y} L ${lInstinct.x} ${lInstinct.y} Z`;
+  })() : null;
   
   // Agents ordered by hotkey (⌘1, ⌘2, ⌘3) matching AGENT_ORDER
   const agents = [
@@ -184,7 +200,21 @@ function RadarChart({
           );
         })}
         
-        {/* Data area */}
+        {/* Learned weights area (dotted) - what Intersect learned */}
+        {learnedPath && (
+          <motion.path
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            d={learnedPath}
+            fill="none"
+            stroke="var(--color-ash)"
+            strokeWidth={1.5}
+            strokeDasharray="4 3"
+            opacity={0.4}
+          />
+        )}
+        
+        {/* Points area (solid) - what user sets */}
         <motion.path
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -396,8 +426,14 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
     setUserProfile,
     activePersonaProfile,
     setActivePersonaProfile,
+    clearMessages,
+    addMessage,
+    setCurrentConversation,
   } = useAppStore();
   const [showApiModal, setShowApiModal] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [includeConversations, setIncludeConversations] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   // Convert weights to points (12 total, each 2-7)
   const weightsToPoints = (weight: number) => Math.round(weight * 12);
   const pointsToWeight = (points: number) => points / 12;
@@ -509,11 +545,91 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
     }
   }, [localPoints, setUserProfile, setActivePersonaProfile]);
 
+  // Handle reset personalization
+  const handleReset = useCallback(async () => {
+    if (!activePersonaProfile) return;
+    
+    // #region agent log
+    fetch('http://127.0.0.1:7246/ingest/b1642af4-d9a7-4f6d-adc2-21b0e5a3bf37',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Settings.tsx:handleReset:entry',message:'Reset initiated',data:{profileId:activePersonaProfile.id,includeConversations,beforeWeights:{i:userProfile?.instinctWeight,l:userProfile?.logicWeight,p:userProfile?.psycheWeight},beforeMsgCount:activePersonaProfile.messageCount},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1,H2,H3,H5'})}).catch(()=>{});
+    // #endregion
+    
+    setIsResetting(true);
+    try {
+      await resetPersonalization(activePersonaProfile.id, includeConversations);
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7246/ingest/b1642af4-d9a7-4f6d-adc2-21b0e5a3bf37',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Settings.tsx:handleReset:afterCall',message:'resetPersonalization returned',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1,H2'})}).catch(()=>{});
+      // #endregion
+      
+      // Refresh data
+      const updatedPersona = await getActivePersonaProfile();
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7246/ingest/b1642af4-d9a7-4f6d-adc2-21b0e5a3bf37',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Settings.tsx:handleReset:afterPersonaRefresh',message:'Got updated persona',data:{afterWeights:{i:updatedPersona?.instinctWeight,l:updatedPersona?.logicWeight,p:updatedPersona?.psycheWeight},afterMsgCount:updatedPersona?.messageCount,afterPoints:{i:updatedPersona?.instinctPoints,l:updatedPersona?.logicPoints,p:updatedPersona?.psychePoints}},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1,H3,H5'})}).catch(()=>{});
+      // #endregion
+      
+      if (updatedPersona) {
+        setActivePersonaProfile(updatedPersona);
+        // Reset local points to match (should now be 4, 4, 4)
+        setLocalPoints({
+          instinct: updatedPersona.instinctPoints,
+          logic: updatedPersona.logicPoints,
+          psyche: updatedPersona.psychePoints,
+        });
+        // Also reset selected dominant trait
+        setSelectedDominantTrait(null);
+      }
+      const updatedProfile = await getUserProfile();
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7246/ingest/b1642af4-d9a7-4f6d-adc2-21b0e5a3bf37',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Settings.tsx:handleReset:afterProfileRefresh',message:'Got updated user profile',data:{afterWeights:{i:updatedProfile?.instinctWeight,l:updatedProfile?.logicWeight,p:updatedProfile?.psycheWeight}},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2,H3'})}).catch(()=>{});
+      // #endregion
+      
+      setUserProfile(updatedProfile);
+      
+      // Start a new conversation
+      clearMessages();
+      const newConvo = await createConversation(false);
+      setCurrentConversation(newConvo);
+      
+      // Get and add the opening message
+      const opener = await getConversationOpener(false);
+      addMessage({
+        id: crypto.randomUUID(),
+        conversationId: newConvo.id,
+        role: 'governor',
+        content: opener.content,
+        timestamp: new Date(),
+      });
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7246/ingest/b1642af4-d9a7-4f6d-adc2-21b0e5a3bf37',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Settings.tsx:handleReset:newConvo',message:'Started new conversation',data:{convoId:newConvo?.id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H8'})}).catch(()=>{});
+      // #endregion
+      
+      setShowResetModal(false);
+      setIncludeConversations(false);
+    } catch (err) {
+      // #region agent log
+      fetch('http://127.0.0.1:7246/ingest/b1642af4-d9a7-4f6d-adc2-21b0e5a3bf37',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Settings.tsx:handleReset:error',message:'Reset failed',data:{error:String(err)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1,H2,H3,H4,H5'})}).catch(()=>{});
+      // #endregion
+      console.error('Failed to reset personalization:', err);
+    } finally {
+      setIsResetting(false);
+    }
+  }, [activePersonaProfile, includeConversations, setActivePersonaProfile, setUserProfile, userProfile, clearMessages, setCurrentConversation, addMessage]);
+
   // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't close Settings if API modal is open - let it close first
-      if (e.key === 'Escape' && isOpen && !showApiModal) {
+      // Close reset modal with ESC (or ⌘ESC)
+      if (e.key === 'Escape' && showResetModal && !isResetting) {
+        e.preventDefault();
+        setShowResetModal(false);
+        return;
+      }
+      // Close Settings with ESC (but not if modals are open)
+      if (e.key === 'Escape' && isOpen && !showApiModal && !showResetModal) {
         onClose();
       }
       // ⌘K to open API key modal
@@ -524,7 +640,7 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose, showApiModal]);
+  }, [isOpen, onClose, showApiModal, showResetModal, isResetting]);
 
   return (
     <AnimatePresence>
@@ -549,10 +665,11 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
           >
             {/* Header - Started date and ESC */}
             <div className="flex items-center justify-between px-4 py-2 border-b border-smoke/30 flex-shrink-0">
-              {userProfile && (
+              {activePersonaProfile && (
                 <div className="flex items-center gap-2 text-[11px] text-ash/70 font-sans">
                   <Calendar className="w-3.5 h-3.5 text-ash/50" strokeWidth={1.5} />
-                  <span>Started {formatDate(userProfile.createdAt)}</span>
+                  <span>Started {formatDate(activePersonaProfile.createdAt)}</span>
+                  <span className="px-2 py-0.5 bg-smoke/40 rounded-full text-ash/60">{activePersonaProfile.messageCount} messages</span>
                 </div>
               )}
               <button
@@ -650,7 +767,7 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
               </div>
 
               {/* Agent weights - Radar chart */}
-              {userProfile && (
+              {activePersonaProfile && (
                 <section>
                   
                   <div 
@@ -660,9 +777,9 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                       // Colors: Logic #00D4FF, Psyche #E040FB, Instinct #EF4444
                       paddingBottom: '67px',
                       background: (() => {
-                        const logicInv = 1 - userProfile.logicWeight;
-                        const psycheInv = 1 - userProfile.psycheWeight;
-                        const instinctInv = 1 - userProfile.instinctWeight;
+                        const logicInv = 1 - (userProfile?.logicWeight ?? 0.333);
+                        const psycheInv = 1 - (userProfile?.psycheWeight ?? 0.333);
+                        const instinctInv = 1 - (userProfile?.instinctWeight ?? 0.333);
                         const total = logicInv + psycheInv + instinctInv;
                         const l = (logicInv / total) * 0.12;
                         const p = (psycheInv / total) * 0.12;
@@ -694,15 +811,29 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                       </div>
                     </div>
                     
-                    {/* Info tooltip */}
+                    {/* Info tooltip - Educational explanation */}
                     <div className="absolute top-4 left-4 z-50">
                       <div className="group/info relative flex-shrink-0">
                         <Info className="w-4 h-4 text-ash/50 hover:text-ash/70 transition-colors cursor-pointer" strokeWidth={1.5} />
-                        {/* Tooltip */}
-                        <div className="absolute left-0 top-full mt-2 z-50 w-64 px-3 py-2 bg-obsidian/95 backdrop-blur-xl border border-smoke/40 rounded-lg opacity-0 invisible group-hover/info:opacity-100 group-hover/info:visible transition-all shadow-xl pointer-events-none">
-                          <p className="text-[10px] text-ash/70 font-sans leading-relaxed">
-                            Adjust how the Governor thinks—give more points to the voices you want to hear most often. Choose your dominant trait to shape how the Governor sees and talks to you.
-                          </p>
+                        {/* Expanded educational tooltip */}
+                        <div className="absolute left-0 top-full mt-2 z-50 w-80 px-4 py-3 bg-obsidian/95 backdrop-blur-xl border border-smoke/40 rounded-lg opacity-0 invisible group-hover/info:opacity-100 group-hover/info:visible transition-all shadow-xl pointer-events-none">
+                          <h4 className="text-xs font-semibold text-ash mb-2 font-sans">Understanding the Triangles</h4>
+                          
+                          <div className="space-y-2">
+                            <div className="text-[10px] text-ash/70 font-sans leading-relaxed flex items-start gap-2">
+                              <span className="inline-block w-3 h-0.5 mt-1.5 bg-gradient-to-r from-red-400 via-cyan-400 to-purple-400 rounded shrink-0" />
+                              <span><span className="text-pearl font-medium">Solid triangle</span> — Your points. What you set to prioritize voices.</span>
+                            </div>
+                            
+                            <div className="text-[10px] text-ash/70 font-sans leading-relaxed flex items-start gap-2">
+                              <span className="inline-block w-3 h-0.5 mt-1.5 border-t border-dashed border-ash/60 shrink-0" />
+                              <span><span className="text-ash/80 font-medium">Dotted triangle</span> — Learned weights. What Intersect observes from your engagement.</span>
+                            </div>
+                            
+                            <div className="text-[10px] text-ash/70 font-sans leading-relaxed mt-2 pt-2 border-t border-smoke/30">
+                              <span className="text-amber-400 font-medium">Dominant Trait</span> — Click a portrait to choose how Governor speaks to you.
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -712,9 +843,9 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                       className="absolute inset-0 opacity-20"
                       style={{
                         background: (() => {
-                          const logicInv = 1 - userProfile.logicWeight;
-                          const psycheInv = 1 - userProfile.psycheWeight;
-                          const instinctInv = 1 - userProfile.instinctWeight;
+                          const logicInv = 1 - (userProfile?.logicWeight ?? 0.333);
+                          const psycheInv = 1 - (userProfile?.psycheWeight ?? 0.333);
+                          const instinctInv = 1 - (userProfile?.instinctWeight ?? 0.333);
                           const total = logicInv + psycheInv + instinctInv;
                           const l = (logicInv / total) * 0.15;
                           const p = (psycheInv / total) * 0.15;
@@ -735,6 +866,11 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                           logic: animatedWeights.logic,
                           psyche: animatedWeights.psyche,
                         }}
+                        learnedWeights={userProfile ? {
+                          instinct: (userProfile?.instinctWeight ?? 0.333),
+                          logic: (userProfile?.logicWeight ?? 0.333),
+                          psyche: (userProfile?.psycheWeight ?? 0.333),
+                        } : undefined}
                         localPoints={localPoints}
                         onPointChange={handlePointChange}
                         selectedDominantTrait={selectedDominantTrait}
@@ -750,14 +886,26 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
 
 
             {/* Footer - sticky at bottom */}
-            <div className="flex items-center justify-between px-4 py-3 border-t border-smoke/30 flex-shrink-0">
-              <div className="flex items-center gap-1.5">
-                <img src={governorTransparent} alt="" className="w-4 h-4 opacity-60" />
-                <p className="text-xs text-ash/60 font-sans">Intersect v1.2.0</p>
+            <div className="flex items-center justify-between px-4 py-3 border-t border-smoke/30 shrink-0">
+              {/* Left: Copyright + Reset */}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
+                  <img src={governorTransparent} alt="" className="w-4 h-4 opacity-60" />
+                  <p className="text-xs text-ash/60 font-sans">Intersect v1.2.0</p>
+                </div>
+                <button
+                  onClick={() => setShowResetModal(true)}
+                  className="flex items-center gap-1 px-2 py-1 rounded-full border border-smoke/30 text-[10px] text-ash/50 hover:text-red-400 hover:border-red-400/30 transition-colors font-sans"
+                  title="Reset Personalization"
+                >
+                  <RefreshCw size={12} />
+                  Reset
+                </button>
               </div>
+              {/* Right: Connected + API Key */}
               <div className="flex items-center gap-2">
                 {userProfile?.apiKey && (
-                  <span className="flex items-center gap-1">
+                  <span className="flex items-center gap-1 px-2 py-1 rounded-full border border-smoke/30">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                     <span className="text-[10px] text-emerald-500/80 font-sans">Connected</span>
                   </span>
@@ -767,7 +915,7 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                   className="flex items-center gap-1.5 px-1.5 py-0.5 rounded text-ash/60 hover:text-pearl hover:bg-smoke/30 transition-colors cursor-pointer"
                   title="Change API Key (⌘K)"
                 >
-                  <ApiKeyIcon size={14} className="flex-shrink-0" />
+                  <ApiKeyIcon size={14} className="shrink-0" />
                   <kbd className="w-5 h-5 bg-smoke/30 rounded text-[9px] font-sans text-ash/50 border border-smoke/40 flex items-center justify-center">⌘K</kbd>
                 </button>
               </div>
@@ -785,6 +933,81 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
             initialOpenAiKey={userProfile?.apiKey}
             initialAnthropicKey={userProfile?.anthropicKey}
           />
+
+          {/* Reset Personalization Modal */}
+          <AnimatePresence>
+            {showResetModal && (
+              <motion.div
+                className="fixed inset-0 flex items-center justify-center z-70"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                {/* Backdrop */}
+                <div 
+                  className="absolute inset-0 bg-obsidian/80 backdrop-blur-sm"
+                  onClick={() => !isResetting && setShowResetModal(false)}
+                />
+                
+                {/* Modal */}
+                <motion.div
+                  className="relative bg-obsidian/95 backdrop-blur-xl border border-smoke/40 rounded-xl p-5 w-[340px] shadow-2xl font-sans"
+                  initial={{ scale: 0.95, opacity: 0, y: 10 }}
+                  animate={{ scale: 1, opacity: 1, y: 0 }}
+                  exit={{ scale: 0.95, opacity: 0, y: 10 }}
+                  transition={{ type: 'spring', damping: 25, stiffness: 400 }}
+                >
+                  {/* ESC button */}
+                  <button
+                    onClick={() => !isResetting && setShowResetModal(false)}
+                    className="absolute top-3 right-3 px-2 py-1 text-[10px] text-ash/40 hover:text-ash/60 border border-smoke/30 rounded transition-colors"
+                  >
+                    ⌘ ESC
+                  </button>
+                  
+                  <h3 className="text-lg font-medium text-pearl mb-2">Reset Personalization</h3>
+                  <p className="text-xs text-ash/70 mb-4 leading-relaxed">
+                    This will reset your weights to defaults and clear learned patterns. 
+                    Your API keys, points, and dominant trait will be preserved.
+                  </p>
+                  
+                  {/* Checkbox for including conversations */}
+                  <label className="flex items-center gap-2 mb-4 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={includeConversations}
+                      onChange={(e) => setIncludeConversations(e.target.checked)}
+                      className="w-4 h-4 rounded border border-smoke/40 bg-transparent checked:bg-red-500 checked:border-red-500"
+                    />
+                    <span className="text-xs text-ash/60 group-hover:text-ash/80 transition-colors">
+                      Also delete conversation history
+                    </span>
+                  </label>
+                  
+                  {/* Buttons */}
+                  <div className="flex gap-2 justify-end">
+                    <button
+                      onClick={() => {
+                        setShowResetModal(false);
+                        setIncludeConversations(false);
+                      }}
+                      disabled={isResetting}
+                      className="px-3 py-1.5 text-xs text-ash/60 hover:text-ash transition-colors disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleReset}
+                      disabled={isResetting}
+                      className="px-3 py-1.5 text-xs bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded transition-colors disabled:opacity-50"
+                    >
+                      {isResetting ? 'Resetting...' : 'Reset'}
+                    </button>
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </>
       )}
     </AnimatePresence>

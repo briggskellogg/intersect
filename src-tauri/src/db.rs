@@ -250,6 +250,20 @@ pub fn init_database(app_handle: &tauri::AppHandle) -> Result<()> {
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+        
+        -- Agent interaction tracking for relationship evolution
+        CREATE TABLE IF NOT EXISTS agent_interactions (
+            id INTEGER PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            agent_type TEXT NOT NULL,
+            total_interactions INTEGER DEFAULT 0,
+            positive_engagements INTEGER DEFAULT 0,
+            negative_engagements INTEGER DEFAULT 0,
+            last_interaction TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(profile_id, agent_type)
+        );
         "
     )?;
     
@@ -601,6 +615,30 @@ pub fn update_weights(instinct: f64, logic: f64, psyche: f64) -> Result<()> {
         
         Ok(())
     })
+}
+
+// Global lock for atomic weight updates to prevent race conditions
+static WEIGHT_UPDATE_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+
+/// Atomically update weights with a transformation function
+/// This prevents race conditions when multiple background tasks try to update weights
+pub fn update_weights_atomic<F>(transform: F) -> Result<(f64, f64, f64)>
+where
+    F: FnOnce((f64, f64, f64)) -> (f64, f64, f64),
+{
+    let _lock = WEIGHT_UPDATE_LOCK.lock().unwrap();
+    
+    // Read current weights
+    let profile = get_user_profile()?;
+    let current = (profile.instinct_weight, profile.logic_weight, profile.psyche_weight);
+    
+    // Transform
+    let new_weights = transform(current);
+    
+    // Write
+    update_weights(new_weights.0, new_weights.1, new_weights.2)?;
+    
+    Ok(new_weights)
 }
 
 /// Enforce that the dominant trait maintains at least a 10% lead over other traits
@@ -1221,7 +1259,7 @@ pub fn reset_all_data() -> Result<()> {
         
         // Reset user_profile weights and message count, but KEEP API keys
         conn.execute(
-            "UPDATE user_profile SET instinct_weight = 0.20, logic_weight = 0.50, psyche_weight = 0.30, total_messages = 0, updated_at = ?1",
+            "UPDATE user_profile SET instinct_weight = 0.333, logic_weight = 0.333, psyche_weight = 0.334, total_messages = 0, updated_at = ?1",
             params![now]
         )?;
         
@@ -1484,4 +1522,199 @@ pub fn delete_persona_profile(profile_id: &str) -> Result<()> {
     })
 }
 
+// ============ AGENT INTERACTION TRACKING ============
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AgentInteraction {
+    pub profile_id: String,
+    pub agent_type: String,
+    pub total_interactions: i64,
+    pub positive_engagements: i64,
+    pub negative_engagements: i64,
+    pub last_interaction: Option<String>,
+}
+
+/// Get or create agent interaction record for a profile/agent pair
+pub fn get_agent_interaction(profile_id: &str, agent_type: &str) -> Result<AgentInteraction> {
+    let now = Utc::now().to_rfc3339();
+    
+    with_connection(|conn| {
+        // Try to get existing record
+        let result: Result<AgentInteraction> = conn.query_row(
+            "SELECT profile_id, agent_type, total_interactions, positive_engagements, negative_engagements, last_interaction 
+             FROM agent_interactions WHERE profile_id = ?1 AND agent_type = ?2",
+            params![profile_id, agent_type],
+            |row| Ok(AgentInteraction {
+                profile_id: row.get(0)?,
+                agent_type: row.get(1)?,
+                total_interactions: row.get(2)?,
+                positive_engagements: row.get(3)?,
+                negative_engagements: row.get(4)?,
+                last_interaction: row.get(5)?,
+            })
+        );
+        
+        match result {
+            Ok(interaction) => Ok(interaction),
+            Err(_) => {
+                // Create new record
+                conn.execute(
+                    "INSERT INTO agent_interactions (profile_id, agent_type, total_interactions, positive_engagements, negative_engagements, created_at, updated_at)
+                     VALUES (?1, ?2, 0, 0, 0, ?3, ?3)",
+                    params![profile_id, agent_type, now]
+                )?;
+                
+                Ok(AgentInteraction {
+                    profile_id: profile_id.to_string(),
+                    agent_type: agent_type.to_string(),
+                    total_interactions: 0,
+                    positive_engagements: 0,
+                    negative_engagements: 0,
+                    last_interaction: None,
+                })
+            }
+        }
+    })
+}
+
+/// Record an interaction with an agent (positive or negative)
+pub fn record_agent_interaction(profile_id: &str, agent_type: &str, is_positive: bool) -> Result<()> {
+    let now = Utc::now().to_rfc3339();
+    
+    with_connection(|conn| {
+        // Ensure record exists
+        let _ = conn.execute(
+            "INSERT OR IGNORE INTO agent_interactions (profile_id, agent_type, total_interactions, positive_engagements, negative_engagements, created_at, updated_at)
+             VALUES (?1, ?2, 0, 0, 0, ?3, ?3)",
+            params![profile_id, agent_type, now]
+        );
+        
+        // Update counts
+        if is_positive {
+            conn.execute(
+                "UPDATE agent_interactions SET total_interactions = total_interactions + 1, positive_engagements = positive_engagements + 1, last_interaction = ?1, updated_at = ?1 
+                 WHERE profile_id = ?2 AND agent_type = ?3",
+                params![now, profile_id, agent_type]
+            )?;
+        } else {
+            conn.execute(
+                "UPDATE agent_interactions SET total_interactions = total_interactions + 1, negative_engagements = negative_engagements + 1, last_interaction = ?1, updated_at = ?1 
+                 WHERE profile_id = ?2 AND agent_type = ?3",
+                params![now, profile_id, agent_type]
+            )?;
+        }
+        
+        Ok(())
+    })
+}
+
+/// Get all agent interactions for a profile
+pub fn get_all_agent_interactions(profile_id: &str) -> Result<Vec<AgentInteraction>> {
+    with_connection(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT profile_id, agent_type, total_interactions, positive_engagements, negative_engagements, last_interaction 
+             FROM agent_interactions WHERE profile_id = ?1"
+        )?;
+        
+        let interactions = stmt.query_map(params![profile_id], |row| {
+            Ok(AgentInteraction {
+                profile_id: row.get(0)?,
+                agent_type: row.get(1)?,
+                total_interactions: row.get(2)?,
+                positive_engagements: row.get(3)?,
+                negative_engagements: row.get(4)?,
+                last_interaction: row.get(5)?,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+        
+        Ok(interactions)
+    })
+}
+// ============ RESET PERSONALIZATION ============
+
+/// Reset personalization for a profile - keeps API keys, points, dominant trait, and name
+pub fn reset_personalization(profile_id: &str) -> Result<()> {
+    let now = Utc::now().to_rfc3339();
+    let log_path = std::path::Path::new("/Users/briggskellogg/Developer/intersect/.cursor/debug.log");
+    
+    // #region agent log
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
+        use std::io::Write;
+        let _ = writeln!(f, r#"{{"location":"db.rs:reset_personalization:entry","message":"Starting reset","data":{{"profile_id":"{}"}},"timestamp":{},"sessionId":"debug-session","hypothesisId":"H1,H2,H4"}}"#, profile_id, chrono::Utc::now().timestamp_millis());
+    }
+    // #endregion
+    
+    with_connection(|conn| {
+        // Reset persona_profiles weights, points, message_count, and created_at to defaults
+        let persona_rows = conn.execute(
+            "UPDATE persona_profiles SET 
+                instinct_weight = 0.333, 
+                logic_weight = 0.333, 
+                psyche_weight = 0.334, 
+                instinct_points = 4,
+                logic_points = 4,
+                psyche_points = 4,
+                message_count = 0, 
+                created_at = ?1,
+                updated_at = ?1 
+             WHERE id = ?2",
+            params![now, profile_id]
+        )?;
+        
+        // #region agent log
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
+            use std::io::Write;
+            let _ = writeln!(f, r#"{{"location":"db.rs:reset_personalization:persona_update","message":"Updated persona_profiles","data":{{"rows_affected":{}}},"timestamp":{},"sessionId":"debug-session","hypothesisId":"H1,H5"}}"#, persona_rows, chrono::Utc::now().timestamp_millis());
+        }
+        // #endregion
+        
+        // Also reset user_profile weights (fallback table)
+        let user_rows = conn.execute(
+            "UPDATE user_profile SET 
+                instinct_weight = 0.333, 
+                logic_weight = 0.333, 
+                psyche_weight = 0.334, 
+                total_messages = 0, 
+                updated_at = ?1",
+            params![now]
+        )?;
+        
+        // #region agent log
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
+            use std::io::Write;
+            let _ = writeln!(f, r#"{{"location":"db.rs:reset_personalization:user_update","message":"Updated user_profile","data":{{"rows_affected":{}}},"timestamp":{},"sessionId":"debug-session","hypothesisId":"H2"}}"#, user_rows, chrono::Utc::now().timestamp_millis());
+        }
+        // #endregion
+        
+        // Clear memory tables for this profile
+        let facts = conn.execute("DELETE FROM user_facts WHERE 1=1", [])?;
+        let patterns = conn.execute("DELETE FROM user_patterns WHERE 1=1", [])?;
+        let themes = conn.execute("DELETE FROM recurring_themes WHERE 1=1", [])?;
+        let summaries = conn.execute("DELETE FROM conversation_summaries WHERE 1=1", [])?;
+        let interactions = conn.execute("DELETE FROM agent_interactions WHERE profile_id = ?1", params![profile_id])?;
+        
+        // #region agent log
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
+            use std::io::Write;
+            let _ = writeln!(f, r#"{{"location":"db.rs:reset_personalization:memory_clear","message":"Cleared memory tables","data":{{"facts":{},"patterns":{},"themes":{},"summaries":{},"interactions":{}}},"timestamp":{},"sessionId":"debug-session","hypothesisId":"H4"}}"#, facts, patterns, themes, summaries, interactions, chrono::Utc::now().timestamp_millis());
+        }
+        // #endregion
+        
+        Ok(())
+    })
+}
+
+/// Full reset including conversation history
+pub fn reset_personalization_full(profile_id: &str) -> Result<()> {
+    // First do the standard reset
+    reset_personalization(profile_id)?;
+    
+    // Then delete all conversations and messages
+    with_connection(|conn| {
+        conn.execute("DELETE FROM messages WHERE 1=1", [])?;
+        conn.execute("DELETE FROM conversations WHERE 1=1", [])?;
+        Ok(())
+    })
+}

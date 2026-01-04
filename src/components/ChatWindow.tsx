@@ -937,14 +937,32 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
 
           {/* New conversation + Immersive mode pill */}
           <div className="flex items-center gap-1 bg-charcoal/60 rounded-full px-1.5 py-1 border border-smoke/30">
-            <button
-              onClick={() => handleNewConversation()}
-              className="flex items-center gap-1 px-1.5 py-1 rounded-full text-ash/60 hover:text-pearl hover:bg-smoke/30 transition-all cursor-pointer"
-              title="New conversation (⌘N)"
-            >
-              <BotMessageSquare className="w-3.5 h-3.5" strokeWidth={1.5} />
-              <kbd className="text-[8px] font-mono text-ash/40">⌘N</kbd>
-            </button>
+            <div className="relative group/text">
+              <button
+                onClick={() => handleNewConversation()}
+                className="group flex items-center gap-1 px-1.5 py-1 rounded-full transition-all cursor-pointer hover:bg-fuchsia-500/20"
+                style={{ color: '#E040FB' }}
+                title="New conversation (⌘N)"
+              >
+                <BotMessageSquare className="w-3.5 h-3.5 opacity-70 group-hover:opacity-100 transition-opacity" strokeWidth={1.5} />
+                <kbd className="text-[8px] font-mono opacity-40 group-hover:opacity-70 transition-opacity">⌘N</kbd>
+              </button>
+              
+              {/* Text Mode hover tooltip */}
+              <div 
+                className="absolute top-full mt-2 left-0 px-3 py-2 bg-obsidian/95 border rounded-lg opacity-0 invisible group-hover/text:opacity-100 group-hover/text:visible transition-all shadow-xl w-[280px] z-50 pointer-events-auto"
+                style={{ borderColor: 'rgba(224, 64, 251, 0.4)' }}
+              >
+                <div className="flex items-center gap-2 mb-1.5">
+                  <BotMessageSquare size={12} className="text-fuchsia-400" strokeWidth={1.5} />
+                  <span className="text-xs font-sans font-medium text-fuchsia-300">TEXT MODE</span>
+                  <kbd className="px-1.5 py-0.5 bg-smoke/30 rounded border border-smoke/40 text-[8px] font-mono text-ash/60">⌘N</kbd>
+                </div>
+                <p className="text-[10px] text-ash/80 font-mono leading-relaxed">
+                  A <strong>typing experience</strong> with Snap, Dot, and Puff — helpful inner voices that support your thinking, offer perspectives, and guide you forward. Type your thoughts and press Enter.
+                </p>
+              </div>
+            </div>
             
             <div className="w-px h-4 bg-smoke/30" />
             
@@ -969,11 +987,8 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
                   <span className="text-xs font-sans font-medium text-amber-300">GAME MODE</span>
                   <kbd className="px-1.5 py-0.5 bg-smoke/30 rounded border border-smoke/40 text-[8px] font-mono text-ash/60">⌘G</kbd>
                 </div>
-                <p className="text-[10px] text-ash/80 font-mono leading-relaxed mb-1.5">
+                <p className="text-[10px] text-ash/80 font-mono leading-relaxed">
                   An immersive <strong>speaking experience</strong> with Storm, Spin, and Swarm — challenging inner voices that push back, question assumptions, and call out blind spots. Speak freely and say "submit" when ready.
-                </p>
-                <p className="text-[9px] text-ash/50 font-mono italic">
-                  Text mode uses helpful agents. Game mode uses challenging agents.
                 </p>
               </div>
             </div>
@@ -1134,17 +1149,17 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
 
       {/* Floating Input */}
       <div className="absolute bottom-3 left-1/2 -translate-x-1/2 w-3/4 max-w-5xl">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-[7px]">
           {/* Copy conversation to clipboard button */}
           <button
             onClick={copyConversation}
             disabled={messages.length === 0}
-            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-all border border-transparent hover:bg-charcoal/60 hover:border-smoke/30 ${
+            className={`flex items-center justify-center gap-1.5 px-[11px] py-1.5 rounded-lg transition-all border border-transparent hover:bg-charcoal/60 hover:border-smoke/30 ${
               messages.length === 0 
                 ? 'text-ash/20 cursor-not-allowed' 
                 : copied 
-                  ? 'text-emerald-400'
-                  : 'text-ash/50 hover:text-emerald-400 cursor-pointer'
+                  ? 'text-ash/70'
+                  : 'text-ash/50 hover:text-ash/80 cursor-pointer'
             }`}
             title="Copy conversation to clipboard (⌘C)"
           >
@@ -1270,10 +1285,10 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
           {/* Microphone button - voice transcription */}
           <button
             onClick={toggleTranscription}
-            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-all cursor-pointer border border-transparent hover:bg-charcoal/60 hover:border-smoke/30 ${
+            className={`flex items-center justify-center gap-1.5 px-[11px] py-1.5 rounded-lg transition-all cursor-pointer border border-transparent hover:bg-charcoal/60 hover:border-smoke/30 ${
               isTranscribing || isConnecting
                 ? 'text-amber-400' 
-                : 'text-ash/50 hover:text-ash'
+                : 'text-ash/50 hover:text-ash/80'
             }`}
             title={isTranscribing ? 'Stop transcription (⌘S)' : isConnecting ? 'Connecting...' : 'Start voice transcription (⌘S)'}
             >

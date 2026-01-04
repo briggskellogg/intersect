@@ -26,7 +26,7 @@ I built this for myself, but you can use it too.
 
 ## Download
 
-**[Download Intersect-1.0 for macOS (Apple Silicon)](https://github.com/briggskellogg/intersect/releases/download/v1.0/Intersect-1.0.dmg)**
+**[Download Intersect-v1.2 for macOS (Apple Silicon)](https://github.com/briggskellogg/intersect/releases/download/v1.2/Intersect-v1.2.dmg)**
 
 Requires macOS 12+ and Apple Silicon (M1/M2/M3). You'll need your own OpenAI and Anthropic API keys.
 

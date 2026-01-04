@@ -258,7 +258,7 @@ export interface ConversationOpenerResult {
 
 // Conversation opener
 export async function getConversationOpener(isVoiceMode?: boolean): Promise<ConversationOpenerResult> {
-  return invoke<ConversationOpenerResult>('get_conversation_opener', { isVoiceMode });
+  return invoke<ConversationOpenerResult>('get_conversation_opener', { isVoiceMode: isVoiceMode ?? false });
 }
 
 // Send message
@@ -368,9 +368,15 @@ export async function generateUserSummary(): Promise<string> {
   return invoke<string>('generate_user_summary');
 }
 
+
 // Reset
 export async function resetAllData(): Promise<void> {
   await invoke('reset_all_data');
+}
+
+// Reset personalization (weights, points, memory, optionally conversations)
+export async function resetPersonalization(profileId: string, includeConversations: boolean): Promise<void> {
+  await invoke('reset_personalization', { profileId, options: { include_conversations: includeConversations } });
 }
 
 // Window controls
@@ -390,4 +396,3 @@ export async function getGovernorImage(): Promise<string | null> {
 export async function getGovernorSwirlingVideo(): Promise<string | null> {
   return invoke<string | null>('get_governor_swirling_video');
 }
-

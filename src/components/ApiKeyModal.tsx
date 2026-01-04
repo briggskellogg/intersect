@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ExternalLink, Loader2, Trash2, Check, AlertCircle, Circle, Mic } from './icons';
+import { ExternalLink, Loader2, Trash2, Check, AlertCircle, Circle, ElevenLabsIcon } from './icons';
 import { saveApiKey, saveAnthropicKey, removeApiKey, removeAnthropicKey, getUserProfile } from '../hooks/useTauri';
 import { useAppStore } from '../store';
 import governorIcon from '../assets/governor-transparent.png';
@@ -209,11 +209,10 @@ export function ApiKeyModal({ isOpen, onComplete, initialOpenAiKey, initialAnthr
               )}
               
               <div className="flex items-center justify-center gap-2">
-                <img src={governorIcon} alt="" className="w-7 h-7 opacity-80" />
-                <h1 className="font-logo text-2xl font-bold text-white">
+                <h1 className="font-logo text-2xl font-bold tracking-wide text-pearl">
                   Intersect
                 </h1>
-                <span className="text-[10px] font-sans text-ash/50 ml-1.5">v1</span>
+                <span className="px-1 py-0.5 bg-smoke/40 border border-smoke/50 rounded text-[10px] font-mono text-ash/70 leading-none">v1</span>
               </div>
             </div>
 
@@ -346,14 +345,14 @@ export function ApiKeyModal({ isOpen, onComplete, initialOpenAiKey, initialAnthr
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-3">
                     <div className="w-7 h-7 rounded-full bg-aurora/20 flex items-center justify-center">
-                      <Mic className="w-4 h-4 text-aurora" />
+                      <ElevenLabsIcon size={16} className="text-aurora" />
                     </div>
                     <div>
                       <h3 className="text-sm font-sans text-pearl font-medium flex items-center gap-2">
                         ElevenLabs
                         <span className="px-1 py-0.5 bg-amber-500/15 text-amber-400/80 border border-amber-500/25 rounded-full text-[8px] font-sans font-medium leading-none">OPTIONAL</span>
                       </h3>
-                      <p className="text-[10px] text-ash/60 font-sans">Voice transcription</p>
+                      <p className="text-[10px] text-ash/60 font-sans">Voice synthesis & transcription</p>
                     </div>
                   </div>
                   <StatusIndicator status={elevenLabsStatus} isLoading={isLoadingElevenLabs} />

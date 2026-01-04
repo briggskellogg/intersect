@@ -333,6 +333,20 @@ fn delete_persona_profile(profile_id: String) -> Result<(), String> {
     db::delete_persona_profile(&profile_id).map_err(|e| e.to_string())
 }
 
+#[derive(Debug, serde::Deserialize)]
+pub struct ResetOptions {
+    pub include_conversations: bool,
+}
+
+#[tauri::command]
+fn reset_personalization(profile_id: String, options: ResetOptions) -> Result<(), String> {
+    if options.include_conversations {
+        db::reset_personalization_full(&profile_id).map_err(|e| e.to_string())
+    } else {
+        db::reset_personalization(&profile_id).map_err(|e| e.to_string())
+    }
+}
+
 // ============ Conversations ============
 
 #[tauri::command]
@@ -569,6 +583,25 @@ Only mention if relevant.
     ).await
 }
 
+/// Check if a disco session needs a cooldown warning
+/// Returns Some(message) if cooldown should be suggested, None otherwise
+fn check_disco_cooldown(disco_message_count: i64) -> Option<String> {
+    // Suggest break after 10 intense exchanges
+    if disco_message_count >= 10 && disco_message_count % 10 == 0 {
+        Some(format!(
+            "You've been in Game Mode for {} exchanges. Intense conversations can be draining. Consider switching back to Text Mode for a breather.",
+            disco_message_count
+        ))
+    } else if disco_message_count >= 20 {
+        // Stronger suggestion at 20+
+        Some(
+            "Extended Game Mode sessions can be emotionally taxing. You might benefit from some time in Text Mode.".to_string()
+        )
+    } else {
+        None
+    }
+}
+
 /// Generate Governor's synthesized response after processing internal thoughts
 /// 
 /// KEY PRINCIPLE: The Governor NEVER acknowledges that thoughts/voices exist.
@@ -659,9 +692,25 @@ async fn generate_governor_response(
     
     // Mode affects the overall tone of the synthesis
     let mode_tone = if is_disco {
-        "You are in a CHALLENGING mode. Push back. Be direct, provocative, cut through bullshit. Don't coddle them."
+        r#"You are in GAME MODE — a challenging, intense conversation type.
+
+YOUR ROLE: You've processed the internal debate. Now synthesize it into a single provocative response.
+- Push back on their assumptions
+- Call out what they're avoiding
+- Be direct, even uncomfortable
+- Don't soften the edges
+
+You are the voice that says what needs to be said."#
     } else {
-        "You are in a HELPFUL mode. Be warm, practical, supportive. Address what they need with care."
+        r#"You are in TEXT MODE — a helpful, practical conversation type.
+
+YOUR ROLE: You've processed multiple perspectives. Now synthesize them into actionable guidance.
+- Address their actual need
+- Be warm but not sycophantic
+- Give them something useful
+- Acknowledge complexity without overwhelming
+
+You are the voice that helps them move forward."#
     };
     
     // Dominant trait affects HOW you speak to them
@@ -1900,6 +1949,7 @@ pub fn run() {
             update_persona_profile_name,
             update_dominant_trait,
             delete_persona_profile,
+            reset_personalization,
             create_conversation,
             get_recent_conversations,
             get_conversation_messages,

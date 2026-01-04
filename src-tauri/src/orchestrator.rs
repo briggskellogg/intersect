@@ -223,29 +223,60 @@ pub fn decide_response_heuristic(
         scores.insert("psyche", psyche_w);
     }
     
-    // ===== POINTS BIAS: Add +0.03 per point allocated =====
+    // ===== POINTS BIAS: Exponential scaling for meaningful differentiation =====
+    // 2^(points-4) * 0.05: 2 points = 0.0125, 4 points = 0.05, 6 points = 0.20
     if let Some((instinct_p, logic_p, psyche_p)) = points {
-        *scores.entry("instinct").or_insert(0.0) += instinct_p as f64 * 0.03;
-        *scores.entry("logic").or_insert(0.0) += logic_p as f64 * 0.03;
-        *scores.entry("psyche").or_insert(0.0) += psyche_p as f64 * 0.03;
+        let calc_boost = |p: i64| -> f64 {
+            let exponent = (p - 4) as f64;
+            2.0_f64.powf(exponent) * 0.05
+        };
+        
+        *scores.entry("instinct").or_insert(0.0) += calc_boost(instinct_p);
+        *scores.entry("logic").or_insert(0.0) += calc_boost(logic_p);
+        *scores.entry("psyche").or_insert(0.0) += calc_boost(psyche_p);
+        
         logging::log_routing(None, &format!(
-            "[HEURISTIC] Points bias: I={} (+{:.2}) L={} (+{:.2}) P={} (+{:.2})",
-            instinct_p, instinct_p as f64 * 0.03,
-            logic_p, logic_p as f64 * 0.03,
-            psyche_p, psyche_p as f64 * 0.03
+            "[HEURISTIC] Points bias (exponential): I={} (+{:.3}) L={} (+{:.3}) P={} (+{:.3})",
+            instinct_p, calc_boost(instinct_p),
+            logic_p, calc_boost(logic_p),
+            psyche_p, calc_boost(psyche_p)
         ));
     }
     
-    // ===== DOMINANT TRAIT BIAS: Add +0.10 in Normal Mode only =====
-    if !is_disco {
-        if let Some(dominant) = dominant_trait {
+    // ===== DOMINANT TRAIT BIAS: Scale based on how dominant they actually are =====
+    if let Some(dominant) = dominant_trait {
+        let dominant_weight = match dominant {
+            "instinct" => instinct_w,
+            "logic" => logic_w,
+            "psyche" => psyche_w,
+            _ => 0.33,
+        };
+        
+        // Calculate dominance margin (how much higher than average 0.33)
+        // 0.33 = no dominance, 0.60 = strong dominance
+        let dominance_margin = (dominant_weight - 0.33).max(0.0);
+        
+        if is_disco {
+            // DISCO: Invert the bias — suppress the dominant, amplify the suppressed
+            // Dominant trait gets PENALIZED proportionally
             if let Some(score) = scores.get_mut(dominant) {
-                *score += 0.10;
-                logging::log_routing(None, &format!(
-                    "[HEURISTIC] Dominant trait bias: +0.10 to {}",
-                    dominant
-                ));
+                *score -= dominance_margin * 0.3;
             }
+            logging::log_routing(None, &format!(
+                "[HEURISTIC] DISCO: Suppressing dominant {} by -{:.3}",
+                dominant, dominance_margin * 0.3
+            ));
+        } else {
+            // NORMAL: Boost proportional to how dominant they are
+            // Range: +0.05 (barely dominant) to +0.15 (strongly dominant)
+            let bias = 0.05 + (dominance_margin * 0.4);
+            if let Some(score) = scores.get_mut(dominant) {
+                *score += bias;
+            }
+            logging::log_routing(None, &format!(
+                "[HEURISTIC] Dominant trait bias: +{:.3} to {} (margin: {:.3})",
+                bias, dominant, dominance_margin
+            ));
         }
     }
     
@@ -1110,7 +1141,7 @@ Respond with ONLY valid JSON:
                 decide_grounding_heuristic(user_message, conversation_history, Some(profile))
             });
             
-            let content = self.get_agent_response_with_grounding(
+            let mut content = self.get_agent_response_with_grounding(
                 agent,
                 user_message,
                 conversation_history,
@@ -1122,6 +1153,11 @@ Respond with ONLY valid JSON:
                 is_disco,
                 is_disco, // primary_is_disco - in game mode, all are disco
             ).await?;
+            
+            // Post-process disco mode responses to fix any leaked normal mode names
+            if is_disco {
+                content = sanitize_disco_names(&content);
+            }
             
             logging::log_agent(None, &format!(
                 "Turn {}: {} responded ({:?})", turn + 1, selected_agent, response_type
@@ -1288,6 +1324,33 @@ Respond with ONLY valid JSON:
     }
 }
 
+/// Post-process disco mode responses to replace any leaked normal mode names
+/// This catches cases where the LLM ignores instructions and uses Snap/Dot/Puff instead of Storm/Spin/Swarm
+fn sanitize_disco_names(content: &str) -> String {
+    // Simple case-sensitive replacements for common patterns
+    // Agent names are typically capitalized at start of sentence or as proper nouns
+    content
+        .replace("Snap's", "Storm's")
+        .replace("Snap ", "Storm ")
+        .replace("snap's", "Storm's")
+        .replace("snap ", "Storm ")
+        .replace("Dot's", "Spin's")
+        .replace("Dot ", "Spin ")
+        .replace("dot's", "Spin's")
+        .replace("dot ", "Spin ")
+        .replace("Puff's", "Swarm's")
+        .replace("Puff ", "Swarm ")
+        .replace("puff's", "Swarm's")
+        .replace("puff ", "Swarm ")
+        // Also catch at end of sentences
+        .replace("Snap.", "Storm.")
+        .replace("Dot.", "Spin.")
+        .replace("Puff.", "Swarm.")
+        .replace("Snap,", "Storm,")
+        .replace("Dot,", "Spin,")
+        .replace("Puff,", "Swarm,")
+}
+
 /// Get the system prompt for an agent based on response type and disco mode
 /// primary_is_disco: whether the agent being responded to was in disco mode (for push-back)
 fn get_agent_system_prompt(agent: Agent, response_type: ResponseType, primary_response: Option<&str>, primary_agent: Option<&str>, is_disco: bool, primary_is_disco: bool) -> String {
@@ -1398,7 +1461,7 @@ BREVITY IS CRITICAL: 1-2 sentences max. Say one thing well, then stop."#,
     };
     
     let disco_suffix = if is_disco {
-        "\n\nYou are in DISCO MODE - be more intense, more opinionated, more visceral. Push harder. Challenge more. The user wants your unfiltered, extreme perspective.\n\nCRITICAL: You only know Storm, Spin, and Swarm. Never say \"Snap\", \"Dot\", or \"Puff\" - those names don't exist to you."
+        "\n\nYou are in DISCO MODE - be more intense, more opinionated, more visceral. Push harder. Challenge more. The user wants your unfiltered, extreme perspective.\n\nIMPORTANT NAME RULES:\n- Storm = Instinct (YOU if you're instinct)\n- Spin = Logic (YOU if you're logic)\n- Swarm = Psyche (YOU if you're psyche)\n- NEVER say \"Snap\", \"Dot\", or \"Puff\" - these names DO NOT EXIST in your world\n- If referencing another voice, use ONLY: Storm, Spin, or Swarm\n- Saying Snap/Dot/Puff is a CRITICAL ERROR"
     } else {
         ""
     };
@@ -1899,4 +1962,167 @@ pub fn combine_trait_analyses(
     // Normalize to sum to 1.0
     let total = instinct + logic + psyche;
     (instinct / total, logic / total, psyche / total)
+}
+
+// ============ AGENT RELATIONSHIP EVOLUTION ============
+
+use crate::db::AgentInteraction;
+
+/// Represents the relationship between user and agent
+pub struct AgentRelationship {
+    pub agent: Agent,
+    pub total_interactions: i64,
+    pub positive_engagement_ratio: f64,
+    pub last_interaction_days_ago: i64,
+}
+
+impl AgentRelationship {
+    pub fn from_interaction(agent: Agent, interaction: &AgentInteraction) -> Self {
+        let ratio = if interaction.total_interactions > 0 {
+            interaction.positive_engagements as f64 / interaction.total_interactions as f64
+        } else {
+            0.5 // Neutral default
+        };
+        
+        let days_ago = if let Some(ref last) = interaction.last_interaction {
+            if let Ok(last_dt) = chrono::DateTime::parse_from_rfc3339(last) {
+                let now = chrono::Utc::now();
+                (now - last_dt.with_timezone(&chrono::Utc)).num_days()
+            } else {
+                999
+            }
+        } else {
+            999
+        };
+        
+        Self {
+            agent,
+            total_interactions: interaction.total_interactions,
+            positive_engagement_ratio: ratio,
+            last_interaction_days_ago: days_ago,
+        }
+    }
+    
+    /// Get the familiarity level based on interaction history
+    pub fn get_familiarity_level(&self) -> &'static str {
+        match self.total_interactions {
+            0..=5 => "new",
+            6..=20 => "familiar",
+            21..=50 => "close",
+            _ => "intimate",
+        }
+    }
+    
+    /// Generate relationship context for prompt injection
+    pub fn format_relationship_context(&self, is_disco: bool) -> String {
+        let agent_name = match (&self.agent, is_disco) {
+            (Agent::Instinct, false) => "Snap",
+            (Agent::Instinct, true) => "Storm",
+            (Agent::Logic, false) => "Dot",
+            (Agent::Logic, true) => "Spin",
+            (Agent::Psyche, false) => "Puff",
+            (Agent::Psyche, true) => "Swarm",
+        };
+        
+        let familiarity = self.get_familiarity_level();
+        let engagement_tone = if self.positive_engagement_ratio > 0.7 {
+            "They've responded well to your perspective in the past."
+        } else if self.positive_engagement_ratio < 0.3 {
+            "They've often disagreed with you or dismissed your points."
+        } else {
+            "They have a mixed history with your perspective."
+        };
+        
+        let recency = if self.last_interaction_days_ago < 1 {
+            "You spoke with them recently."
+        } else if self.last_interaction_days_ago < 7 {
+            "It's been a few days since you last spoke."
+        } else {
+            "It's been a while since your last interaction."
+        };
+        
+        format!(
+            "[RELATIONSHIP CONTEXT for {}]\nFamiliarity: {} ({} interactions)\n{}\n{}\n",
+            agent_name, familiarity, self.total_interactions, engagement_tone, recency
+        )
+    }
+}
+
+// ============ COLD START ONBOARDING ============
+
+/// Generate a cold-start question to quickly calibrate user preferences
+/// Returns None if user has enough messages (>= 5)
+pub fn get_cold_start_question(message_count: i64) -> Option<String> {
+    if message_count >= 5 {
+        return None; // Already have enough data
+    }
+    
+    // Rotate through calibration questions based on count
+    let questions = [
+        // Message 0: Thinking style
+        "Quick sidebar -- when you're making a decision, do you usually go with your gut, think it through systematically, or reflect on how it feels?",
+        // Message 1: Communication preference
+        "Do you prefer advice that's direct and action-oriented, or more exploratory and open-ended?",
+        // Message 2: Challenge tolerance
+        "When someone disagrees with you, do you find it energizing or draining?",
+    ];
+    
+    let idx = message_count as usize;
+    if idx < questions.len() {
+        Some(questions[idx].to_string())
+    } else {
+        None
+    }
+}
+
+/// Parse cold-start response to adjust initial weights
+/// Returns adjusted weights based on user's answer to calibration question
+pub fn parse_cold_start_response(
+    response: &str,
+    question_index: usize,
+    current_weights: (f64, f64, f64),
+) -> (f64, f64, f64) {
+    let lower = response.to_lowercase();
+    let (mut i, mut l, mut p) = current_weights;
+    
+    match question_index {
+        0 => {
+            // Thinking style question
+            if lower.contains("gut") || lower.contains("instinct") || lower.contains("quick") || lower.contains("feel it") {
+                i += 0.15;
+            } else if lower.contains("think") || lower.contains("systematic") || lower.contains("logic") || lower.contains("analyze") {
+                l += 0.15;
+            } else if lower.contains("feel") || lower.contains("reflect") || lower.contains("emotion") || lower.contains("sit with") {
+                p += 0.15;
+            }
+        }
+        1 => {
+            // Communication preference
+            if lower.contains("direct") || lower.contains("action") || lower.contains("get to the point") {
+                i += 0.10;
+            } else if lower.contains("exploratory") || lower.contains("open") || lower.contains("options") {
+                p += 0.10;
+            } else if lower.contains("structured") || lower.contains("clear") || lower.contains("step") {
+                l += 0.10;
+            }
+        }
+        2 => {
+            // Challenge tolerance -- affects disco receptiveness
+            // Higher instinct = likes being challenged
+            if lower.contains("energiz") || lower.contains("enjoy") || lower.contains("bring it") || lower.contains("love it") {
+                i += 0.08;
+            } else if lower.contains("drain") || lower.contains("avoid") || lower.contains("prefer not") {
+                p += 0.08;
+            }
+        }
+        _ => {}
+    }
+    
+    // Normalize
+    let total = i + l + p;
+    if total > 0.0 {
+        (i / total, l / total, p / total)
+    } else {
+        current_weights
+    }
 }

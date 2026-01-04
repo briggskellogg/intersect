@@ -210,53 +210,73 @@ export function WaveformVisualizer({
           // Calculate overall audio intensity from low frequencies (voice range)
           const voiceRange = outputDataArrayRef.current.slice(0, 32);
           const avg = voiceRange.reduce((a, b) => a + b, 0) / voiceRange.length;
-          audioIntensity = 0.3 + (avg / 255) * 0.7; // 0.3 to 1.0 range
+          audioIntensity = 0.2 + (avg / 255) * 0.8; // 0.2 to 1.0 range - more reactive
         }
         
-        // Draw smooth wave with edge fading and audio reactivity
-        ctx.beginPath();
-        let lastY = height / 2;
+        // Draw wave as segments with individual opacity for edge fade
+        const segmentWidth = 3;
+        ctx.lineWidth = 2.5;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
         
+        // Calculate all y positions first
+        const yPositions: number[] = [];
         for (let x = 0; x < width; x++) {
           const normalizedX = x / width;
-          const edgeAlpha = getEdgeAlpha(x, width, fadeWidth);
           
           // Get audio-reactive amplitude for this x position
           let audioModulation = 1;
           if (waveformData) {
             const dataIndex = Math.floor(normalizedX * Math.min(waveformData.length, 64));
-            audioModulation = 0.3 + (waveformData[dataIndex] / 255) * 0.7;
+            audioModulation = 0.4 + (waveformData[dataIndex] / 255) * 0.6;
           }
           
-          // Multiple sine waves modulated by edge fade and audio
-          const amplitude = edgeAlpha * audioIntensity * audioModulation;
+          // Multiple sine waves modulated by audio
+          const amplitude = audioIntensity * audioModulation;
           const y = height / 2 + 
-            Math.sin(normalizedX * 10 + time * 4) * 15 * amplitude +
-            Math.sin(normalizedX * 20 + time * 6) * 8 * amplitude +
-            Math.sin(normalizedX * 5 + time * 2) * 5 * amplitude;
-          
-          if (x === 0) {
-            ctx.moveTo(x, y);
-          } else {
-            // Smooth curve
-            const cpX = (x + (x - 1)) / 2;
-            ctx.quadraticCurveTo(x - 1, lastY, cpX, (lastY + y) / 2);
-          }
-          lastY = y;
+            Math.sin(normalizedX * 10 + time * 4) * 18 * amplitude +
+            Math.sin(normalizedX * 20 + time * 6) * 10 * amplitude +
+            Math.sin(normalizedX * 5 + time * 2) * 6 * amplitude;
+          yPositions.push(y);
         }
         
-        ctx.strokeStyle = color;
-        ctx.globalAlpha = 0.9;
-        ctx.lineWidth = 2.5;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.stroke();
+        // Draw segments with edge fade opacity
+        for (let x = 0; x < width - segmentWidth; x += segmentWidth) {
+          const edgeAlpha = getEdgeAlpha(x + segmentWidth / 2, width, fadeWidth);
+          
+          ctx.beginPath();
+          ctx.moveTo(x, yPositions[x]);
+          
+          // Draw smooth segment
+          for (let sx = 1; sx <= segmentWidth && x + sx < width; sx++) {
+            const px = x + sx;
+            ctx.lineTo(px, yPositions[px]);
+          }
+          
+          ctx.strokeStyle = color;
+          ctx.globalAlpha = edgeAlpha * (0.5 + audioIntensity * 0.5);
+          ctx.stroke();
+        }
         
-        // Subtle glow, more intense with audio
+        // Add glow effect with edge fade
         ctx.shadowColor = color;
-        ctx.shadowBlur = 8 + audioIntensity * 8;
-        ctx.globalAlpha = 0.3 + audioIntensity * 0.2;
-        ctx.stroke();
+        ctx.shadowBlur = 10 + audioIntensity * 15;
+        
+        for (let x = 0; x < width - segmentWidth; x += segmentWidth) {
+          const edgeAlpha = getEdgeAlpha(x + segmentWidth / 2, width, fadeWidth);
+          
+          ctx.beginPath();
+          ctx.moveTo(x, yPositions[x]);
+          
+          for (let sx = 1; sx <= segmentWidth && x + sx < width; sx++) {
+            const px = x + sx;
+            ctx.lineTo(px, yPositions[px]);
+          }
+          
+          ctx.globalAlpha = edgeAlpha * 0.3 * audioIntensity;
+          ctx.stroke();
+        }
+        
         ctx.shadowBlur = 0;
         ctx.globalAlpha = 1;
         
@@ -287,7 +307,7 @@ export function WaveformVisualizer({
     return () => {
       cancelAnimationFrame(animationFrameRef.current);
     };
-  }, [isActive, mode, color]);
+  }, [isActive, mode, color, outputAnalyser]);
 
   return (
     <canvas

@@ -396,3 +396,19 @@ export function ApiKeyIcon({ size = 24, className = '' }: IconProps) {
     </svg>
   );
 }
+
+export function ElevenLabsIcon({ size = 24, className = '' }: IconProps) {
+  // Pixel art waveform/audio icon for ElevenLabs
+  return (
+    <svg 
+      fill="none" 
+      xmlns="http://www.w3.org/2000/svg" 
+      viewBox="0 0 24 24" 
+      width={size} 
+      height={size}
+      className={className}
+    >
+      <path d="M6 7h2v10H6V7zM11 4h2v16h-2V4zM16 9h2v6h-2V9z" fill="currentColor"/>
+    </svg>
+  );
+}

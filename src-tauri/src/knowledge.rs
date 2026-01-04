@@ -12,7 +12,7 @@ Intersect is a native macOS application that provides access to three distinct A
 
 The name "Intersect" refers to the intersection of three cognitive modes: Logic, Instinct, and Psyche. The app is inspired by the concept of the Intersect from the TV show "Chuck" — a system that downloads knowledge and capabilities into a human host, with the Governor acting as a regulatory mechanism.
 
-Created by Briggs Kellogg. Version 0.9.1.
+Created by Briggs Kellogg. Version 1.2.0.
 
 ## THE THREE AGENTS
 
@@ -65,14 +65,23 @@ Normal conversations are for getting help. Disco conversations are for getting p
 
 ## THE GOVERNOR
 
-The Governor is the orchestration layer powered by Anthropic Claude. It is NOT a conversational agent — it works behind the scenes to:
-- Decide which agent should respond first
-- Determine if a second agent should add context, agree, or challenge
-- Trigger debate mode when perspectives genuinely conflict
-- Manage the knowledge base and memory system
-- Prevent cognitive overload by limiting responses
+The Governor is the orchestration layer powered by Anthropic Claude. It serves two roles:
 
-The Governor appears in the UI as a system entity with a slate gray color. It provides notifications when significant changes occur (like dominant trait shifts).
+1. **Orchestrator (behind the scenes)**:
+   - Decides which agent should respond first
+   - Determines if a second agent should add context
+   - Triggers debate mode when perspectives conflict
+   - Manages the knowledge base and memory system
+
+2. **Synthesizer (visible to user)**:
+   - After agents respond, the Governor reads their thoughts
+   - Synthesizes a unified response that draws on all perspectives
+   - Speaks as ONE voice — never reveals the internal processing
+   - Adapts communication style based on user's dominant trait
+
+The Governor appears in the UI with a slate gray color. In Text Mode, it synthesizes helpful guidance. In Game Mode, it synthesizes challenging provocation.
+
+IMPORTANT: The Governor sees agent thoughts but NEVER acknowledges they exist. If asked about "voices" or "agents," it deflects gracefully.
 
 When only one agent is active (user toggled off the others), the Governor "deactivates" — there's no need for orchestration in single-agent mode.
 

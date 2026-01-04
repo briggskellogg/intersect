@@ -9,7 +9,7 @@ import { useElevenLabsTTS } from '../hooks/useElevenLabsTTS';
 import { useSubmitDetection } from '../hooks/useSubmitDetection';
 import { WaveformVisualizer } from './WaveformVisualizer';
 import { ImmersiveSettings } from './ImmersiveSettings';
-import { DISCO_AGENTS } from '../constants/agents'; // Voice mode always uses disco agents
+import { DISCO_AGENTS, USER_PROFILES } from '../constants/agents'; // Voice mode always uses disco agents
 import { VoiceChanger, ClipboardCopy, ClipboardCheck } from './icons';
 import { AgentType } from '../types';
 
@@ -89,10 +89,16 @@ export function ImmersiveMode() {
     immersiveTurn,
     setImmersiveTurn,
     userProfile,
+    activePersonaProfile,
     setLastImmersiveConversationId,
     backgroundMusic,
     backgroundMusicVolume,
   } = useAppStore();
+  
+  // Get user avatar based on dominant trait
+  const userAvatar = activePersonaProfile?.dominantTrait 
+    ? USER_PROFILES[activePersonaProfile.dominantTrait] 
+    : USER_PROFILES.instinct;
   
   // Game Mode has its own conversation ID - completely separate from Text Mode
   const [gameModeConversationId, setGameModeConversationId] = useState<string | null>(null);
@@ -107,7 +113,13 @@ export function ImmersiveMode() {
 
   // Exit confirmation modal state
   const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const showExitConfirmRef = useRef(false);
   const [copiedVoice, setCopiedVoice] = useState(false);
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    showExitConfirmRef.current = showExitConfirm;
+  }, [showExitConfirm]);
   
   // Dialog history - accumulates all conversation entries
   interface DialogEntry {
@@ -142,11 +154,34 @@ export function ImmersiveMode() {
   const hasInitializedRef = useRef(false);
   const isNearBottomRef = useRef(true); // Track if user is at/near bottom
 
-  // Copy voice mode conversation to clipboard
+  // Refs to access latest state in keyboard handlers
+  const dialogHistoryRef = useRef<DialogEntry[]>([]);
+  const currentThoughtsRef2 = useRef<ThoughtState[]>([]);
+  const currentGovernorTextRef = useRef<string | null>(null);
+  
+  // Keep refs in sync with state
+  useEffect(() => {
+    dialogHistoryRef.current = dialogHistory;
+  }, [dialogHistory]);
+  
+  useEffect(() => {
+    currentThoughtsRef2.current = currentThoughts;
+  }, [currentThoughts]);
+  
+  useEffect(() => {
+    currentGovernorTextRef.current = currentGovernorText;
+  }, [currentGovernorText]);
+
+  // Copy voice mode conversation to clipboard - uses refs for latest state
   const copyVoiceConversation = useCallback(async () => {
     let text = '';
     
-    dialogHistory.forEach((entry) => {
+    // Use refs to get the latest values
+    const history = dialogHistoryRef.current;
+    const thoughts = currentThoughtsRef2.current;
+    const govText = currentGovernorTextRef.current;
+    
+    history.forEach((entry) => {
       if (entry.type === 'user') {
         text += `You:\n${entry.content}\n\n`;
       } else if (entry.type === 'thought') {
@@ -158,13 +193,13 @@ export function ImmersiveMode() {
     });
     
     // Add current in-progress content
-    currentThoughts.forEach((thought) => {
+    thoughts.forEach((thought) => {
       const agent = DISCO_AGENTS[thought.agentType];
       text += `${agent?.name || thought.agentType} (thinking):\n${thought.content}\n\n`;
     });
     
-    if (currentGovernorText) {
-      text += `Governor:\n${currentGovernorText}\n\n`;
+    if (govText) {
+      text += `Governor:\n${govText}\n\n`;
     }
     
     try {
@@ -174,7 +209,7 @@ export function ImmersiveMode() {
     } catch (err) {
       console.error('Failed to copy:', err);
     }
-  }, [dialogHistory, currentThoughts, currentGovernorText]);
+  }, []); // No dependencies - uses refs for latest state
 
   // Scribe transcription
   const scribe = useScribeTranscription({
@@ -697,19 +732,43 @@ export function ImmersiveMode() {
     };
   }, [isImmersiveMode, elevenLabsApiKey]);
 
-  // Handle exit with confirmation if there's dialogue
+  // Handle exit with confirmation if there's dialogue - uses refs for latest state
   const handleExitRequest = useCallback(() => {
-    if (dialogHistory.length > 0 || currentThoughts.length > 0 || currentGovernorText) {
+    const hasContent = dialogHistoryRef.current.length > 0 || 
+                       currentThoughtsRef2.current.length > 0 || 
+                       currentGovernorTextRef.current;
+    if (hasContent) {
       setShowExitConfirm(true);
     } else {
       setImmersiveMode(false);
     }
-  }, [dialogHistory, currentThoughts, currentGovernorText, setImmersiveMode]);
+  }, [setImmersiveMode]);
   
   // Keyboard shortcuts: Cmd+ESC to exit, Cmd+V for settings, Space to skip
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Escape' && !isSettingsOpen && !showExitConfirm) {
+      // When exit modal is showing, handle Enter to exit and Cmd+C to copy
+      if (showExitConfirmRef.current) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          setShowExitConfirm(false);
+          setImmersiveMode(false);
+          return;
+        }
+        if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
+          e.preventDefault();
+          copyVoiceConversation();
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setShowExitConfirm(false);
+          return;
+        }
+        return; // Block other shortcuts when modal is open
+      }
+      
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Escape' && !isSettingsOpen) {
         handleExitRequest();
       }
       if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
@@ -769,7 +828,7 @@ export function ImmersiveMode() {
       window.addEventListener('keydown', handleKeyDown);
       return () => window.removeEventListener('keydown', handleKeyDown);
     }
-  }, [isImmersiveMode, setImmersiveMode, isSettingsOpen, tts, isGovernorSpeaking, currentGovernorText, currentThoughts, stopThinkingAudio, setImmersiveTurn, elevenLabsApiKey, scribe, startThinkingAudio, handleExitRequest, copyVoiceConversation, showExitConfirm]);
+  }, [isImmersiveMode, setImmersiveMode, isSettingsOpen, tts, isGovernorSpeaking, stopThinkingAudio, setImmersiveTurn, elevenLabsApiKey, scribe, handleExitRequest, copyVoiceConversation]);
 
   // Stop all audio immediately when exiting immersive mode
   useEffect(() => {
@@ -851,6 +910,12 @@ export function ImmersiveMode() {
           />
         </div>
 
+
+        {/* Draggable region for window movement */}
+        <div 
+          data-tauri-drag-region 
+          className="absolute top-0 left-0 right-0 h-12 z-[5]"
+        />
 
         {/* Header controls - boxed shortcuts */}
         <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
@@ -971,8 +1036,13 @@ export function ImmersiveMode() {
         >
           {/* Panel Header */}
           <div className="flex items-center justify-between px-3 py-2 rounded-t-xl bg-slate-900/60 backdrop-blur-sm border border-slate-700/30 border-b-0">
-            <span className="text-[10px] font-sans text-slate-500 tracking-wider">
-              {tts.isSpeaking ? 'SPACE to skip' : ''}
+            <span className="text-[10px] font-sans text-slate-500 tracking-wider flex items-center gap-1.5">
+              {tts.isSpeaking && (
+                <>
+                  <kbd className="px-2 py-0.5 rounded bg-slate-800/80 text-[9px] text-slate-400 border border-slate-600/50 font-mono">␣</kbd>
+                  <span>to skip</span>
+                </>
+              )}
             </span>
           </div>
           
@@ -1133,7 +1203,7 @@ export function ImmersiveMode() {
           </div>
         </motion.div>
 
-        {/* Right Transcription Feed - shows when listening, editable */}
+        {/* Right Transcription Feed - shows when listening */}
         <div className="absolute right-8 bottom-28 w-96">
           <AnimatePresence>
             {immersiveTurn === 'user' && isListening && (
@@ -1144,11 +1214,43 @@ export function ImmersiveMode() {
                 exit={{ opacity: 0, y: -10 }}
                 className="flex flex-col items-end"
               >
-                <div className="w-full max-h-80 rounded-xl bg-slate-900/70 backdrop-blur-md border border-slate-700/30 overflow-y-auto shadow-2xl" style={{ scrollbarWidth: 'none' }}>
-                  <p className="px-4 py-3 text-sm text-white/90 leading-relaxed font-light text-right min-h-[60px]">
-                    {currentTranscript.replace(/\s*submit[.!?,\s]*$/i, '').trim() || <span className="text-slate-500 italic">listening...</span>}
-                  </p>
-                </div>
+                {/* Box with profile picture and text */}
+                <motion.div 
+                  className="w-full rounded-xl bg-slate-900/70 backdrop-blur-md border border-slate-700/30 shadow-2xl overflow-hidden"
+                  animate={{ 
+                    borderColor: ['rgba(100, 116, 139, 0.3)', 'rgba(251, 191, 36, 0.3)', 'rgba(100, 116, 139, 0.3)']
+                  }}
+                  transition={{ 
+                    repeat: Infinity, 
+                    duration: 2,
+                    ease: 'easeInOut'
+                  }}
+                >
+                  <div className="flex items-start gap-3 p-3">
+                    {/* Profile picture - always visible */}
+                    <img
+                      src={userAvatar}
+                      alt="You"
+                      className="w-10 h-10 rounded-full object-cover ring-2 ring-amber-400/40 shrink-0"
+                    />
+                    {/* Text area */}
+                    <div className="flex-1 min-h-[40px] flex items-center">
+                      {currentTranscript.replace(/\s*submit[.!?,\s]*$/i, '').trim() ? (
+                        <p className="text-sm text-white/90 leading-relaxed font-light text-left">
+                          {currentTranscript.replace(/\s*submit[.!?,\s]*$/i, '').trim()}
+                        </p>
+                      ) : (
+                        <motion.span 
+                          className="text-sm text-slate-500 italic"
+                          animate={{ opacity: [0.4, 0.7, 0.4] }}
+                          transition={{ repeat: Infinity, duration: 1.5 }}
+                        >
+                          listening...
+                        </motion.span>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
                 <span className="text-[9px] text-slate-600 font-sans mt-1.5">
                   say "Submit"
                 </span>
@@ -1292,9 +1394,10 @@ export function ImmersiveMode() {
                       setShowExitConfirm(false);
                       setImmersiveMode(false);
                     }}
-                    className="flex-1 px-3 py-2 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-300 hover:bg-amber-500/30 transition-all text-[10px] font-sans font-medium"
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-300 hover:bg-amber-500/30 transition-all text-[10px] font-sans font-medium"
                   >
                     Exit
+                    <kbd className="px-1 py-0.5 rounded bg-charcoal/50 text-[8px] text-amber-400/50 border border-amber-500/20">↵ ENT</kbd>
                   </button>
                 </div>
               </motion.div>

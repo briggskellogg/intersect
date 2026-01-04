@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '../store';
 import { DISCO_AGENTS, GOVERNOR } from '../constants/agents';
-import { Play, Square, Music, Trash2, Plus, Volume2 } from './icons';
+import { Play, Square, Music, Trash2, Plus, Volume2, ElevenLabsIcon } from './icons';
 import { v4 as uuidv4 } from 'uuid';
 
 interface ImmersiveSettingsProps {
@@ -149,11 +149,16 @@ export function ImmersiveSettings({ isOpen, onClose }: ImmersiveSettingsProps) {
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
             className="absolute inset-0 flex items-center justify-center z-50 pointer-events-none"
           >
-            <div className="w-80 bg-slate-900/95 backdrop-blur-2xl rounded-2xl border border-slate-700/40 shadow-2xl pointer-events-auto overflow-hidden">
+            <div className="w-80 bg-slate-900/95 backdrop-blur-2xl rounded-2xl border border-slate-700/40 shadow-2xl pointer-events-auto overflow-hidden font-sans">
               {/* Header */}
               <div className="px-5 py-4 border-b border-slate-700/30 flex items-center justify-between">
-                <span className="text-sm font-medium text-slate-200">Voice Settings</span>
-                <kbd className="px-1.5 py-0.5 rounded bg-slate-800/50 text-[9px] font-sans text-slate-500 border border-slate-700/30">ESC</kbd>
+                <span className="text-sm font-sans text-slate-200">Voice Settings</span>
+                <button
+                  onClick={onClose}
+                  className="px-1.5 py-0.5 rounded bg-slate-800/50 text-[9px] font-sans text-slate-500 border border-slate-700/30 hover:text-slate-300 hover:border-slate-600 transition-colors cursor-pointer"
+                >
+                  ESC
+                </button>
               </div>
 
               {/* Content */}
@@ -174,7 +179,6 @@ export function ImmersiveSettings({ isOpen, onClose }: ImmersiveSettingsProps) {
                 {/* Governor Voice */}
                 <VoiceRow
                   label="Governor"
-                  sublabel="Final synthesis"
                   avatars={[GOVERNOR.avatar]}
                   value={localVoices.governor}
                   onChange={(v) => setLocalVoices(prev => ({ ...prev, governor: v }))}
@@ -187,9 +191,12 @@ export function ImmersiveSettings({ isOpen, onClose }: ImmersiveSettingsProps) {
 
                 {/* Hint */}
                 {!elevenLabsApiKey && (
-                  <p className="text-[10px] text-amber-400/60 text-center pt-1">
-                    Configure ElevenLabs API key in profile to enable voice
-                  </p>
+                  <div className="flex items-center justify-center gap-1.5 pt-1">
+                    <ElevenLabsIcon size={12} className="text-amber-400/60" />
+                    <p className="text-[10px] text-amber-400/60">
+                      Configure ElevenLabs API key in profile to enable voice
+                    </p>
+                  </div>
                 )}
                 
                 {/* Divider */}
@@ -313,7 +320,7 @@ export function ImmersiveSettings({ isOpen, onClose }: ImmersiveSettingsProps) {
 // Voice row component
 interface VoiceRowProps {
   label?: string;
-  sublabel: string;
+  sublabel?: string;
   avatars: string[];
   value: string;
   onChange: (value: string) => void;

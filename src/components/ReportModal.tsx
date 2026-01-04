@@ -292,7 +292,7 @@ export function ReportModal({ isOpen, onClose, onOpenApiModal }: ReportModalProp
                     onClick={onClose}
                     className="px-1.5 py-1 rounded text-[10px] font-sans text-ash bg-smoke/30 hover:bg-smoke/50 border border-smoke/50 transition-colors cursor-pointer flex-shrink-0"
                   >
-                    ESC
+                    ⌘ ESC
                   </button>
                 </div>
               </div>

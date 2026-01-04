@@ -203,7 +203,7 @@ export function ConversationHistory({
                 className="px-2 py-1 rounded text-[9px] font-sans text-ash bg-smoke/30 hover:bg-smoke/50 border border-smoke/50 transition-colors cursor-pointer flex items-center justify-center"
                 title="Close (Esc)"
               >
-                ESC
+                ⌘ ESC
               </button>
             </div>
 
@@ -381,7 +381,7 @@ export function ConversationHistory({
                           className="px-3 py-1.5 rounded-md border border-smoke/40 bg-smoke/20 hover:bg-smoke/30 text-ash/80 hover:text-pearl transition-colors text-xs font-sans flex items-center gap-1.5"
                         >
                           Cancel
-                          <kbd className="px-1 py-0.5 bg-smoke/30 rounded border border-smoke/40 text-[9px]">ESC</kbd>
+                          <kbd className="px-1 py-0.5 bg-smoke/30 rounded border border-smoke/40 text-[9px]">⌘ ESC</kbd>
                         </button>
                         <button
                           onClick={() => handleDeleteConfirm(deleteConfirmId)}
