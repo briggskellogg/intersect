@@ -24,6 +24,7 @@ export interface UseElevenLabsTTSReturn {
   stop: () => void;
   clearQueue: () => void;
   error: string | null;
+  analyser: AnalyserNode | null; // For audio-reactive visualizations
 }
 
 export function useElevenLabsTTS({
@@ -39,6 +40,11 @@ export function useElevenLabsTTS({
   const isProcessingRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const stoppedIntentionallyRef = useRef(false);
+  
+  // Audio analysis for visualizations
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
 
   // Process the queue
   const processQueue = useCallback(async () => {
@@ -91,9 +97,27 @@ export function useElevenLabsTTS({
       const audioBlob = await response.blob();
       const audioUrl = URL.createObjectURL(audioBlob);
       
-      // Create and play audio
+      // Create and play audio with analyser for visualizations
       const audio = new Audio(audioUrl);
       audioRef.current = audio;
+      
+      // Setup audio context and analyser for waveform visualization
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioContext();
+      }
+      const audioContext = audioContextRef.current;
+      
+      // Create analyser node
+      const newAnalyser = audioContext.createAnalyser();
+      newAnalyser.fftSize = 256;
+      newAnalyser.smoothingTimeConstant = 0.8;
+      analyserRef.current = newAnalyser;
+      setAnalyser(newAnalyser);
+      
+      // Connect audio element to analyser and output
+      const source = audioContext.createMediaElementSource(audio);
+      source.connect(newAnalyser);
+      newAnalyser.connect(audioContext.destination);
       
       await new Promise<void>((resolve, reject) => {
         let resolved = false;
@@ -163,6 +187,8 @@ export function useElevenLabsTTS({
       setCurrentSpeaker(null);
       audioRef.current = null;
       abortControllerRef.current = null;
+      analyserRef.current = null;
+      setAnalyser(null);
     }
   }, [queue, apiKey, onError]);
 
@@ -217,5 +243,6 @@ export function useElevenLabsTTS({
     stop,
     clearQueue,
     error,
+    analyser,
   };
 }

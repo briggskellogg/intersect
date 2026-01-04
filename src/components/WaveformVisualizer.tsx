@@ -5,6 +5,7 @@ interface WaveformVisualizerProps {
   mode: 'input' | 'output' | 'idle';
   color?: string;
   className?: string;
+  outputAnalyser?: AnalyserNode | null; // For audio-reactive output
 }
 
 // Calculate alpha for edge fading (0 at edges, 1 in middle)
@@ -23,11 +24,13 @@ export function WaveformVisualizer({
   mode,
   color = '#94A3B8',
   className = '',
+  outputAnalyser,
 }: WaveformVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationFrameRef = useRef<number>(0);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const dataArrayRef = useRef<Uint8Array | null>(null);
+  const outputDataArrayRef = useRef<Uint8Array | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -190,20 +193,47 @@ export function WaveformVisualizer({
       } else if (mode === 'output') {
         const time = Date.now() / 1000;
         
-        // Draw smooth wave with edge fading
+        // Get audio data if analyser is available
+        let audioIntensity = 0.3; // Default baseline intensity
+        let waveformData: Uint8Array | null = null;
+        
+        if (outputAnalyser) {
+          // Initialize data array if needed
+          if (!outputDataArrayRef.current || outputDataArrayRef.current.length !== outputAnalyser.frequencyBinCount) {
+            outputDataArrayRef.current = new Uint8Array(outputAnalyser.frequencyBinCount);
+          }
+          
+          // Get frequency data for audio reactivity
+          outputAnalyser.getByteFrequencyData(outputDataArrayRef.current);
+          waveformData = outputDataArrayRef.current;
+          
+          // Calculate overall audio intensity from low frequencies (voice range)
+          const voiceRange = outputDataArrayRef.current.slice(0, 32);
+          const avg = voiceRange.reduce((a, b) => a + b, 0) / voiceRange.length;
+          audioIntensity = 0.3 + (avg / 255) * 0.7; // 0.3 to 1.0 range
+        }
+        
+        // Draw smooth wave with edge fading and audio reactivity
         ctx.beginPath();
         let lastY = height / 2;
         
         for (let x = 0; x < width; x++) {
           const normalizedX = x / width;
-          const alpha = getEdgeAlpha(x, width, fadeWidth);
+          const edgeAlpha = getEdgeAlpha(x, width, fadeWidth);
           
-          // Multiple sine waves for organic look, modulated by edge alpha
-          const amplitude = alpha;
+          // Get audio-reactive amplitude for this x position
+          let audioModulation = 1;
+          if (waveformData) {
+            const dataIndex = Math.floor(normalizedX * Math.min(waveformData.length, 64));
+            audioModulation = 0.3 + (waveformData[dataIndex] / 255) * 0.7;
+          }
+          
+          // Multiple sine waves modulated by edge fade and audio
+          const amplitude = edgeAlpha * audioIntensity * audioModulation;
           const y = height / 2 + 
-            Math.sin(normalizedX * 10 + time * 4) * 12 * amplitude +
-            Math.sin(normalizedX * 20 + time * 6) * 6 * amplitude +
-            Math.sin(normalizedX * 5 + time * 2) * 4 * amplitude;
+            Math.sin(normalizedX * 10 + time * 4) * 15 * amplitude +
+            Math.sin(normalizedX * 20 + time * 6) * 8 * amplitude +
+            Math.sin(normalizedX * 5 + time * 2) * 5 * amplitude;
           
           if (x === 0) {
             ctx.moveTo(x, y);
@@ -222,10 +252,10 @@ export function WaveformVisualizer({
         ctx.lineJoin = 'round';
         ctx.stroke();
         
-        // Subtle glow
+        // Subtle glow, more intense with audio
         ctx.shadowColor = color;
-        ctx.shadowBlur = 8;
-        ctx.globalAlpha = 0.4;
+        ctx.shadowBlur = 8 + audioIntensity * 8;
+        ctx.globalAlpha = 0.3 + audioIntensity * 0.2;
         ctx.stroke();
         ctx.shadowBlur = 0;
         ctx.globalAlpha = 1;

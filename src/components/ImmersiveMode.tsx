@@ -1265,6 +1265,7 @@ export function ImmersiveMode() {
                 : themeColor
             }
             className="w-full h-full"
+            outputAnalyser={tts.analyser}
           />
         </div>
 
