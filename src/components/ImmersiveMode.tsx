@@ -747,7 +747,7 @@ export function ImmersiveMode() {
   // Keyboard shortcuts: Cmd+ESC to exit, Cmd+V for settings, Space to skip
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // When exit modal is showing, handle Enter to exit and Cmd+C to copy
+      // When exit modal is showing, handle Enter to exit and C to copy
       if (showExitConfirmRef.current) {
         if (e.key === 'Enter') {
           e.preventDefault();
@@ -755,7 +755,8 @@ export function ImmersiveMode() {
           setImmersiveMode(false);
           return;
         }
-        if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
+        // Just "C" key (no modifier needed) to copy in the modal
+        if (e.key === 'c' || e.key === 'C') {
           e.preventDefault();
           copyVoiceConversation();
           return;
@@ -1387,7 +1388,7 @@ export function ImmersiveMode() {
                   >
                     {copiedVoice ? <ClipboardCheck size={11} /> : <ClipboardCopy size={11} />}
                     {copiedVoice ? 'Copied' : 'Copy'}
-                    <kbd className="px-1 py-0.5 rounded bg-charcoal/50 text-[8px] text-ash/40 border border-smoke/20">⌘C</kbd>
+                    <kbd className="px-1 py-0.5 rounded bg-charcoal/50 text-[8px] text-ash/40 border border-smoke/20">C</kbd>
                   </button>
                   <button
                     onClick={() => {
