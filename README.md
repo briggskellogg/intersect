@@ -37,9 +37,3 @@ Questions? **[me@briggskellogg.com](mailto:me@briggskellogg.com)**
 <p align="center">
   <a href="https://briggskellogg.com">briggskellogg.com</a>
 </p>
-
----
-
-<p align="center">
-  <a href="https://briggskellogg.com">briggskellogg.com</a>
-</p>
