@@ -43,11 +43,11 @@ export function ThemeToggle() {
 
   const getIcon = () => {
     if (theme === 'system') {
-      return <Monitor className="w-4 h-4 text-ash/70 group-hover:text-aurora transition-colors" strokeWidth={1.5} />;
+      return <Monitor className="w-4 h-4 text-ash/70 transition-colors group-hover:[color:#00D4FF]" strokeWidth={1.5} />;
     } else if (theme === 'dark') {
-      return <Moon className="w-4 h-4 text-ash/70 group-hover:text-indigo-400 transition-colors" strokeWidth={1.5} />;
+      return <Moon className="w-4 h-4 text-ash/70 transition-colors group-hover:[color:#E040FB]" strokeWidth={1.5} />;
     } else {
-      return <Sun className="w-4 h-4 text-slate-600 group-hover:text-amber-400 transition-colors" strokeWidth={1.5} />;
+      return <Sun className="w-4 h-4 text-slate-600 transition-colors group-hover:[color:#EAB308]" strokeWidth={1.5} />;
     }
   };
 

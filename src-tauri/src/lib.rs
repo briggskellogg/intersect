@@ -16,6 +16,7 @@ use uuid::Uuid;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
+use tauri::Manager;
 
 // ============ Session Weight Storage ============
 // Session weights track short-term boosts that decay over conversation
@@ -1925,6 +1926,138 @@ fn get_governor_swirling_video() -> Result<Option<String>, String> {
     Ok(Some(data_url))
 }
 
+// ============ Background Music Storage ============
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BackgroundTrack {
+    pub id: String,
+    pub name: String,
+    pub filename: String,
+}
+
+#[tauri::command]
+fn save_background_track(app_handle: tauri::AppHandle, id: String, name: String, data: String) -> Result<BackgroundTrack, String> {
+    use std::fs;
+    use base64::{Engine as _, engine::general_purpose};
+    
+    // Get app data directory
+    let app_data_dir = app_handle.path().app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    let music_dir = app_data_dir.join("background_music");
+    fs::create_dir_all(&music_dir).map_err(|e| format!("Failed to create music dir: {}", e))?;
+    
+    // Parse base64 data URL and decode
+    let base64_data = if data.contains(",") {
+        data.split(',').nth(1).unwrap_or(&data)
+    } else {
+        &data
+    };
+    
+    let bytes = general_purpose::STANDARD.decode(base64_data)
+        .map_err(|e| format!("Failed to decode base64: {}", e))?;
+    
+    // Save file with sanitized name
+    let safe_name = name.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
+    let filename = format!("{}_{}", id, safe_name);
+    let file_path = music_dir.join(&filename);
+    
+    fs::write(&file_path, bytes).map_err(|e| format!("Failed to write file: {}", e))?;
+    
+    // Save metadata
+    let tracks_file = music_dir.join("tracks.json");
+    let mut tracks: Vec<BackgroundTrack> = if tracks_file.exists() {
+        let content = fs::read_to_string(&tracks_file).unwrap_or_else(|_| "[]".to_string());
+        serde_json::from_str(&content).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    
+    let track = BackgroundTrack { id: id.clone(), name: name.clone(), filename: filename.clone() };
+    tracks.push(track.clone());
+    
+    let json = serde_json::to_string_pretty(&tracks).map_err(|e| format!("Failed to serialize: {}", e))?;
+    fs::write(&tracks_file, json).map_err(|e| format!("Failed to save metadata: {}", e))?;
+    
+    Ok(track)
+}
+
+#[tauri::command]
+fn get_background_tracks(app_handle: tauri::AppHandle) -> Result<Vec<BackgroundTrack>, String> {
+    use std::fs;
+    
+    let app_data_dir = app_handle.path().app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    let tracks_file = app_data_dir.join("background_music/tracks.json");
+    
+    if !tracks_file.exists() {
+        return Ok(Vec::new());
+    }
+    
+    let content = fs::read_to_string(&tracks_file).map_err(|e| format!("Failed to read: {}", e))?;
+    let tracks: Vec<BackgroundTrack> = serde_json::from_str(&content).unwrap_or_default();
+    
+    Ok(tracks)
+}
+
+#[tauri::command]
+fn delete_background_track(app_handle: tauri::AppHandle, id: String) -> Result<(), String> {
+    use std::fs;
+    
+    let app_data_dir = app_handle.path().app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    let music_dir = app_data_dir.join("background_music");
+    let tracks_file = music_dir.join("tracks.json");
+    
+    if !tracks_file.exists() {
+        return Ok(());
+    }
+    
+    let content = fs::read_to_string(&tracks_file).map_err(|e| format!("Failed to read: {}", e))?;
+    let mut tracks: Vec<BackgroundTrack> = serde_json::from_str(&content).unwrap_or_default();
+    
+    // Find and remove the track
+    if let Some(track) = tracks.iter().find(|t| t.id == id) {
+        let file_path = music_dir.join(&track.filename);
+        let _ = fs::remove_file(file_path); // Ignore error if file doesn't exist
+    }
+    
+    tracks.retain(|t| t.id != id);
+    
+    let json = serde_json::to_string_pretty(&tracks).map_err(|e| format!("Failed to serialize: {}", e))?;
+    fs::write(&tracks_file, json).map_err(|e| format!("Failed to save: {}", e))?;
+    
+    Ok(())
+}
+
+#[tauri::command]
+fn get_background_track_data(app_handle: tauri::AppHandle, id: String) -> Result<Option<String>, String> {
+    use std::fs;
+    use base64::{Engine as _, engine::general_purpose};
+    
+    let app_data_dir = app_handle.path().app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    let music_dir = app_data_dir.join("background_music");
+    let tracks_file = music_dir.join("tracks.json");
+    
+    if !tracks_file.exists() {
+        return Ok(None);
+    }
+    
+    let content = fs::read_to_string(&tracks_file).map_err(|e| format!("Failed to read: {}", e))?;
+    let tracks: Vec<BackgroundTrack> = serde_json::from_str(&content).unwrap_or_default();
+    
+    if let Some(track) = tracks.iter().find(|t| t.id == id) {
+        let file_path = music_dir.join(&track.filename);
+        if file_path.exists() {
+            let bytes = fs::read(&file_path).map_err(|e| format!("Failed to read file: {}", e))?;
+            let base64 = general_purpose::STANDARD.encode(&bytes);
+            return Ok(Some(format!("data:audio/mpeg;base64,{}", base64)));
+        }
+    }
+    
+    Ok(None)
+}
+
 // ============ Run ============
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1970,6 +2103,10 @@ pub fn run() {
             get_governor_swirling_video,
             update_weights,
             update_points,
+            save_background_track,
+            get_background_tracks,
+            delete_background_track,
+            get_background_track_data,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

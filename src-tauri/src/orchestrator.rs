@@ -1325,30 +1325,31 @@ Respond with ONLY valid JSON:
 }
 
 /// Post-process disco mode responses to replace any leaked normal mode names
-/// This catches cases where the LLM ignores instructions and uses Snap/Dot/Puff instead of Storm/Spin/Swarm
+/// This catches cases where the LLM ignores instructions and uses Snap/Dot/Puff instead of Swarm/Spin/Storm
 fn sanitize_disco_names(content: &str) -> String {
     // Simple case-sensitive replacements for common patterns
     // Agent names are typically capitalized at start of sentence or as proper nouns
+    // Mappings: Snap → Swarm (Instinct), Dot → Spin (Logic), Puff → Storm (Psyche)
     content
-        .replace("Snap's", "Storm's")
-        .replace("Snap ", "Storm ")
-        .replace("snap's", "Storm's")
-        .replace("snap ", "Storm ")
+        .replace("Snap's", "Swarm's")
+        .replace("Snap ", "Swarm ")
+        .replace("snap's", "Swarm's")
+        .replace("snap ", "Swarm ")
         .replace("Dot's", "Spin's")
         .replace("Dot ", "Spin ")
         .replace("dot's", "Spin's")
         .replace("dot ", "Spin ")
-        .replace("Puff's", "Swarm's")
-        .replace("Puff ", "Swarm ")
-        .replace("puff's", "Swarm's")
-        .replace("puff ", "Swarm ")
+        .replace("Puff's", "Storm's")
+        .replace("Puff ", "Storm ")
+        .replace("puff's", "Storm's")
+        .replace("puff ", "Storm ")
         // Also catch at end of sentences
-        .replace("Snap.", "Storm.")
+        .replace("Snap.", "Swarm.")
         .replace("Dot.", "Spin.")
-        .replace("Puff.", "Swarm.")
-        .replace("Snap,", "Storm,")
+        .replace("Puff.", "Storm.")
+        .replace("Snap,", "Swarm,")
         .replace("Dot,", "Spin,")
-        .replace("Puff,", "Swarm,")
+        .replace("Puff,", "Storm,")
 }
 
 /// Get the system prompt for an agent based on response type and disco mode
@@ -1461,7 +1462,7 @@ BREVITY IS CRITICAL: 1-2 sentences max. Say one thing well, then stop."#,
     };
     
     let disco_suffix = if is_disco {
-        "\n\nYou are in DISCO MODE - be more intense, more opinionated, more visceral. Push harder. Challenge more. The user wants your unfiltered, extreme perspective.\n\nIMPORTANT NAME RULES:\n- Storm = Instinct (YOU if you're instinct)\n- Spin = Logic (YOU if you're logic)\n- Swarm = Psyche (YOU if you're psyche)\n- NEVER say \"Snap\", \"Dot\", or \"Puff\" - these names DO NOT EXIST in your world\n- If referencing another voice, use ONLY: Storm, Spin, or Swarm\n- Saying Snap/Dot/Puff is a CRITICAL ERROR"
+        "\n\nYou are in DISCO MODE - be more intense, more opinionated, more visceral. Push harder. Challenge more. The user wants your unfiltered, extreme perspective.\n\nIMPORTANT NAME RULES:\n- Swarm = Instinct (YOU if you're instinct)\n- Spin = Logic (YOU if you're logic)\n- Storm = Psyche (YOU if you're psyche)\n- NEVER say \"Snap\", \"Dot\", or \"Puff\" - these names DO NOT EXIST in your world\n- If referencing another voice, use ONLY: Swarm, Spin, or Storm\n- Saying Snap/Dot/Puff is a CRITICAL ERROR"
     } else {
         ""
     };

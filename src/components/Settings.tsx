@@ -378,12 +378,12 @@ function RadarChart({
                       onPointChange(id, +1);
                     }}
                     disabled={
-                      localPoints[id] >= 7 || 
+                      localPoints[id] >= 6 || 
                       ((localPoints.instinct + localPoints.logic + localPoints.psyche) >= 12 &&
                       !(['instinct', 'logic', 'psyche'] as const).some(t => t !== id && localPoints[t] > 2))
                     }
                     className={`w-5 h-5 rounded border flex items-center justify-center transition-all font-sans text-[10px] ${
-                      localPoints[id] < 7 && (
+                      localPoints[id] < 6 && (
                         (localPoints.instinct + localPoints.logic + localPoints.psyche) < 12 ||
                         (['instinct', 'logic', 'psyche'] as const).some(t => t !== id && localPoints[t] > 2)
                       )
@@ -392,7 +392,7 @@ function RadarChart({
                     }`}
                     style={{
                       borderColor: (
-                        localPoints[id] < 7 && (
+                        localPoints[id] < 6 && (
                           (localPoints.instinct + localPoints.logic + localPoints.psyche) < 12 ||
                           (['instinct', 'logic', 'psyche'] as const).some(t => t !== id && localPoints[t] > 2)
                         )
@@ -511,8 +511,8 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
     const currentTotal = localPoints.instinct + localPoints.logic + localPoints.psyche;
     const newValue = newPoints[trait] + delta;
     
-    // Enforce constraints: min 2, max 7
-    if (newValue < 2 || newValue > 7) return;
+    // Enforce constraints: min 2, max 6
+    if (newValue < 2 || newValue > 6) return;
     
     // Calculate new total
     const newTotal = currentTotal + delta;

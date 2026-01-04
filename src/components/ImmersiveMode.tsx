@@ -9,7 +9,7 @@ import { useElevenLabsTTS } from '../hooks/useElevenLabsTTS';
 import { useSubmitDetection } from '../hooks/useSubmitDetection';
 import { WaveformVisualizer } from './WaveformVisualizer';
 import { ImmersiveSettings } from './ImmersiveSettings';
-import { DISCO_AGENTS, USER_PROFILES } from '../constants/agents'; // Voice mode always uses disco agents
+import { DISCO_AGENTS, USER_PROFILES, GOVERNOR } from '../constants/agents'; // Voice mode always uses disco agents
 import { VoiceChanger, ClipboardCopy, ClipboardCheck } from './icons';
 import { AgentType } from '../types';
 
@@ -27,12 +27,12 @@ interface ThoughtState {
   isComplete: boolean;
 }
 
-// Voice mode always uses disco colors - red theme
-const DISCO_COLORS = {
-  primary: '#EF4444',  // Red
-  secondary: '#EF4444', 
-  accent: '#DC2626',
-  glow: '#EF4444',
+// Voice mode uses blue theme for UI, agents use their own colors when speaking
+const GAME_MODE_COLORS = {
+  primary: '#3B82F6',  // Blue - navigation/game mode
+  secondary: '#3B82F6', 
+  accent: '#2563EB',
+  glow: '#3B82F6',
 };
 
 // Typewriter text component for thoughts
@@ -271,6 +271,16 @@ export function ImmersiveMode() {
       // Game mode: all agents are in disco mode (pass same array for both activeAgents and discoAgents)
       const gameAgents: AgentType[] = ['instinct', 'logic', 'psyche'];
       const result = await sendMessageToBackend(gameModeConversationId, cleanedText, gameAgents, gameAgents);
+
+      // Immediately refresh persona profile to update message count (before TTS processing)
+      try {
+        const updatedPersona = await getActivePersonaProfile();
+        if (updatedPersona) {
+          setActivePersonaProfile(updatedPersona);
+        }
+      } catch (profileErr) {
+        console.error('Failed to refresh persona profile:', profileErr);
+      }
 
       const agentThoughts: ThoughtState[] = result.responses.map((resp: { agent: string; content: string }, idx: number) => ({
         id: uuidv4(),
@@ -877,8 +887,8 @@ export function ImmersiveMode() {
 
   if (!isImmersiveMode) return null;
 
-  // Voice mode always uses disco styling
-  const themeColor = DISCO_COLORS.primary;
+  // Voice mode uses blue theme for UI
+  const themeColor = GAME_MODE_COLORS.primary;
 
   return (
     <AnimatePresence>
@@ -897,7 +907,7 @@ export function ImmersiveMode() {
         <div className="absolute inset-0 opacity-40">
           <motion.div 
             className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full blur-3xl"
-            style={{ backgroundColor: DISCO_COLORS.secondary }}
+            style={{ backgroundColor: GAME_MODE_COLORS.secondary }}
             animate={{ 
               scale: [1, 1.2, 1], 
               opacity: [0.3, 0.5, 0.3] 
@@ -906,7 +916,7 @@ export function ImmersiveMode() {
           />
           <motion.div 
             className="absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full blur-3xl"
-            style={{ backgroundColor: DISCO_COLORS.accent }}
+            style={{ backgroundColor: GAME_MODE_COLORS.accent }}
             animate={{ 
               scale: [1.2, 1, 1.2], 
               opacity: [0.5, 0.3, 0.5] 
@@ -916,7 +926,7 @@ export function ImmersiveMode() {
           {/* Center glow - always shown in voice mode */}
           <motion.div 
             className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full blur-3xl"
-            style={{ backgroundColor: DISCO_COLORS.glow }}
+            style={{ backgroundColor: GAME_MODE_COLORS.glow }}
             animate={{ scale: [0.8, 1, 0.8], opacity: [0.1, 0.2, 0.1] }}
             transition={{ repeat: Infinity, duration: 3 }}
           />
@@ -958,7 +968,7 @@ export function ImmersiveMode() {
 
         {/* Agent avatars - top left (always disco agents in voice mode) */}
         <div className="absolute top-4 left-4 z-30 flex items-center gap-3">
-          <div className="relative flex items-center bg-slate-800/60 rounded-full px-2 py-1.5 border border-red-500/30">
+          <div className="relative flex items-center bg-slate-800/60 rounded-full px-2 py-1.5 border border-blue-500/30">
             <div className="flex -space-x-2">
               {(['psyche', 'logic', 'instinct'] as const).map((agentId) => {
                 const agentConfig = DISCO_AGENTS[agentId]; // Voice mode always uses disco agents
@@ -1084,11 +1094,18 @@ export function ImmersiveMode() {
                     key={entry.id}
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    className="px-3 py-2 mb-2 border-l-2 border-emerald-500/50 bg-emerald-500/5"
+                    className="px-3 py-2 mb-2 border-l-2 border-blue-500/50 bg-blue-500/5"
                   >
-                    <p className="text-[11px] text-emerald-400/80 leading-loose">
-                      {entry.content}
-                    </p>
+                    <div className="flex items-start gap-2">
+                      <img 
+                        src={userAvatar}
+                        alt="You"
+                        className="w-4 h-4 rounded-full object-cover ring-1 ring-blue-500/40 shrink-0 mt-0.5"
+                      />
+                      <p className="text-[11px] text-blue-400/80 leading-loose">
+                        {entry.content}
+                      </p>
+                    </div>
                   </motion.div>
                 );
               }
@@ -1131,7 +1148,7 @@ export function ImmersiveMode() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     className="px-3 py-2 mb-3 border-l-2"
-                    style={{ borderColor: themeColor }}
+                    style={{ borderColor: GOVERNOR.color }}
                   >
                     <div className="flex items-start gap-2">
                       <img 
@@ -1139,9 +1156,20 @@ export function ImmersiveMode() {
                         alt="Governor" 
                         className="w-4 h-4 rounded-full flex-shrink-0 mt-0.5 opacity-70"
                       />
-                      <p className="text-[11px] text-slate-300 leading-loose">
-                        {entry.content}
-                      </p>
+                      <div className="flex-1">
+                        <span 
+                          className="inline-block px-1.5 py-0.5 rounded text-[9px] font-mono font-medium mb-1"
+                          style={{ 
+                            backgroundColor: `${GOVERNOR.color}20`,
+                            color: GOVERNOR.color,
+                          }}
+                        >
+                          {GOVERNOR.name}
+                        </span>
+                        <p className="text-[11px] text-slate-300 leading-loose">
+                          {entry.content}
+                        </p>
+                      </div>
                     </div>
                   </motion.div>
                 );
@@ -1196,7 +1224,7 @@ export function ImmersiveMode() {
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0 }}
                   className="px-3 py-2 border-l-2"
-                  style={{ borderColor: themeColor }}
+                  style={{ borderColor: GOVERNOR.color }}
                 >
                   <div className="flex items-start gap-2">
                     <img 
@@ -1204,16 +1232,27 @@ export function ImmersiveMode() {
                       alt="Governor" 
                       className="w-5 h-5 rounded-full flex-shrink-0 mt-0.5"
                       style={{ 
-                        boxShadow: isGovernorSpeaking ? `0 0 8px ${themeColor}60` : 'none',
+                        boxShadow: isGovernorSpeaking ? `0 0 8px ${GOVERNOR.color}60` : 'none',
                       }}
                     />
-                    <p className="text-xs text-slate-200 leading-relaxed">
-                      <ThoughtText 
-                        content={currentGovernorText} 
-                        isActive={isGovernorSpeaking}
-                        isComplete={!isGovernorSpeaking}
-                      />
-                    </p>
+                    <div className="flex-1">
+                      <span 
+                        className="inline-block px-1.5 py-0.5 rounded text-[9px] font-mono font-medium mb-1"
+                        style={{ 
+                          backgroundColor: `${GOVERNOR.color}20`,
+                          color: GOVERNOR.color,
+                        }}
+                      >
+                        {GOVERNOR.name}
+                      </span>
+                      <p className="text-xs text-slate-200 leading-relaxed">
+                        <ThoughtText 
+                          content={currentGovernorText} 
+                          isActive={isGovernorSpeaking}
+                          isComplete={!isGovernorSpeaking}
+                        />
+                      </p>
+                    </div>
                   </div>
                 </motion.div>
               )}
@@ -1238,7 +1277,7 @@ export function ImmersiveMode() {
                 <motion.div 
                   className="w-full rounded-xl bg-slate-900/70 backdrop-blur-md border border-slate-700/30 shadow-2xl overflow-hidden"
                   animate={{ 
-                    borderColor: ['rgba(100, 116, 139, 0.3)', 'rgba(239, 68, 68, 0.3)', 'rgba(100, 116, 139, 0.3)']
+                    borderColor: ['rgba(100, 116, 139, 0.3)', 'rgba(59, 130, 246, 0.4)', 'rgba(100, 116, 139, 0.3)']
                   }}
                   transition={{ 
                     repeat: Infinity, 
@@ -1251,7 +1290,7 @@ export function ImmersiveMode() {
                     <img
                       src={userAvatar}
                       alt="You"
-                      className="w-10 h-10 rounded-full object-cover ring-2 ring-red-400/40 shrink-0"
+                      className="w-10 h-10 rounded-full object-cover ring-2 ring-blue-400/40 shrink-0"
                     />
                     {/* Text area */}
                     <div className="flex-1 min-h-[40px] flex items-center">
@@ -1309,12 +1348,160 @@ export function ImmersiveMode() {
               </>
             )}
             
-            {/* Governor avatar - transparent, no circular crop, no pulsing */}
+            {/* Governor avatar with state-based animations */}
             <div className="w-56 h-56 relative">
-              <img 
+              {/* Orbiting agent avatars when agents are speaking */}
+              {currentThoughts.length > 0 && (
+                <div className="absolute inset-0">
+                  {currentThoughts.map((thought, index) => {
+                    const agent = DISCO_AGENTS[thought.agentType];
+                    const orbitRadius = 140; // Distance from center
+                    const startAngle = index * (360 / Math.max(currentThoughts.length, 1));
+                    
+                    return (
+                      <motion.div
+                        key={thought.id}
+                        className="absolute"
+                        style={{
+                          width: 40,
+                          height: 40,
+                          left: '50%',
+                          top: '50%',
+                          marginLeft: -20,
+                          marginTop: -20,
+                        }}
+                        initial={{ opacity: 0, scale: 0 }}
+                        animate={{ 
+                          opacity: thought.isActive ? 1 : 0.4,
+                          scale: thought.isActive ? 1 : 0.8,
+                          rotate: [startAngle, startAngle + 360],
+                        }}
+                        exit={{ opacity: 0, scale: 0 }}
+                        transition={{
+                          rotate: {
+                            duration: 12,
+                            repeat: Infinity,
+                            ease: 'linear',
+                          },
+                          opacity: { duration: 0.3 },
+                          scale: { duration: 0.3 },
+                        }}
+                      >
+                        <motion.div
+                          style={{ 
+                            transform: `translateX(${orbitRadius}px)`,
+                          }}
+                          animate={{
+                            rotate: [-startAngle, -startAngle - 360], // Counter-rotate to keep upright
+                          }}
+                          transition={{
+                            duration: 12,
+                            repeat: Infinity,
+                            ease: 'linear',
+                          }}
+                        >
+                          <div 
+                            className="w-10 h-10 rounded-full overflow-hidden border-2"
+                            style={{ 
+                              borderColor: agent.color,
+                              boxShadow: thought.isActive ? `0 0 16px ${agent.color}60` : 'none',
+                            }}
+                          >
+                            <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover" />
+                          </div>
+                        </motion.div>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              )}
+              
+              {/* Governor speaking ring - amber glow */}
+              {isGovernorSpeaking && (
+                <motion.div
+                  className="absolute -inset-6 rounded-full"
+                  style={{
+                    background: `radial-gradient(circle, transparent 50%, ${GOVERNOR.color}40 60%, transparent 70%)`,
+                  }}
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{
+                    scale: [1, 1.08, 1],
+                    opacity: [0.5, 0.8, 0.5],
+                  }}
+                  transition={{
+                    duration: 2,
+                    repeat: Infinity,
+                    ease: 'easeInOut',
+                  }}
+                />
+              )}
+              
+              {/* Animated ring based on state - using key to prevent jittery transitions */}
+              <motion.div
+                key={isListening ? 'listening' : isThinking ? 'thinking' : 'default'}
+                className="absolute inset-0 rounded-full"
+                initial={{ opacity: 0.3, scale: 1 }}
+                style={{
+                  background: isListening
+                    ? 'radial-gradient(circle, transparent 45%, rgba(59, 130, 246, 0.3) 50%, transparent 55%)'
+                    : isThinking
+                    ? 'radial-gradient(circle, transparent 45%, rgba(234, 179, 8, 0.4) 50%, transparent 55%)'
+                    : 'radial-gradient(circle, transparent 45%, rgba(100, 116, 139, 0.15) 50%, transparent 55%)',
+                }}
+                animate={{
+                  scale: [1, 1.04, 1],
+                  opacity: isListening || isThinking
+                    ? [0.6, 0.9, 0.6]
+                    : [0.3, 0.5, 0.3],
+                }}
+                transition={{
+                  duration: 3,
+                  repeat: Infinity,
+                  ease: 'easeInOut',
+                }}
+              />
+              
+              {/* Secondary outer ring for listening/thinking */}
+              {(isListening || isThinking) && (
+                <motion.div
+                  key={isListening ? 'outer-listening' : 'outer-thinking'}
+                  className="absolute -inset-4 rounded-full"
+                  initial={{ opacity: 0, scale: 1 }}
+                  style={{
+                    background: isListening
+                      ? 'radial-gradient(circle, transparent 60%, rgba(59, 130, 246, 0.15) 70%, transparent 80%)'
+                      : 'radial-gradient(circle, transparent 60%, rgba(234, 179, 8, 0.2) 70%, transparent 80%)',
+                  }}
+                  animate={{
+                    scale: [1, 1.1, 1],
+                    opacity: [0.4, 0.7, 0.4],
+                    rotate: isThinking ? [0, 360] : 0,
+                  }}
+                  transition={{
+                    duration: isThinking ? 4 : 3,
+                    repeat: Infinity,
+                    ease: 'easeInOut',
+                  }}
+                />
+              )}
+              
+              {/* Governor image */}
+              <motion.img 
                 src={governorTransparent} 
                 alt="Governor"
-                className="w-full h-full object-contain"
+                className="w-full h-full object-contain relative z-10"
+                animate={{
+                  scale: isGovernorSpeaking 
+                    ? [1, 1.02, 1] 
+                    : isThinking 
+                    ? [1, 0.99, 1]
+                    : 1,
+                }}
+                transition={{
+                  duration: 2,
+                  repeat: Infinity,
+                  ease: 'easeInOut',
+                }}
               />
             </div>
           </div>
@@ -1332,9 +1519,9 @@ export function ImmersiveMode() {
                   : 'idle'
             }
             color={tts.isSpeaking && tts.currentSpeaker 
-              ? (tts.currentSpeaker === 'governor' ? themeColor : DISCO_AGENTS[tts.currentSpeaker as AgentType]?.color || themeColor)
+              ? (tts.currentSpeaker === 'governor' ? GOVERNOR.color : DISCO_AGENTS[tts.currentSpeaker as AgentType]?.color || themeColor)
               : isListening 
-                ? '#10B981' // Green when recording
+                ? '#3B82F6' // Blue when recording
                 : themeColor
             }
             className="w-full h-full"

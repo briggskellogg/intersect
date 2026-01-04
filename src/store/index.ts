@@ -1,5 +1,13 @@
 import { create } from 'zustand';
 import { Message, UserProfile, PersonaProfile, Conversation, AgentType, DebateMode } from '../types';
+import { getBackgroundTracks, saveBackgroundTrack, deleteBackgroundTrack, getBackgroundTrackData } from '../hooks/useTauri';
+
+// Track with loaded data URL for playback
+export interface LoadedTrack {
+  id: string;
+  name: string;
+  dataUrl: string;
+}
 
 export type Theme = 'light' | 'dark' | 'system';
 
@@ -110,10 +118,11 @@ interface AppState {
   lastImmersiveMessages: Message[];
   setLastImmersiveMessages: (messages: Message[]) => void;
   
-  // Background music for immersive mode
-  backgroundMusic: { id: string; name: string; dataUrl: string }[];
-  addBackgroundMusic: (track: { id: string; name: string; dataUrl: string }) => void;
-  removeBackgroundMusic: (id: string) => void;
+  // Background music for immersive mode (tracks with loaded dataUrls)
+  backgroundMusic: LoadedTrack[];
+  setBackgroundMusic: (tracks: LoadedTrack[]) => void;
+  addBackgroundMusicTrack: (track: LoadedTrack) => void;
+  removeBackgroundMusicTrack: (id: string) => void;
   backgroundMusicEnabled: boolean;
   setBackgroundMusicEnabled: (enabled: boolean) => void;
   backgroundMusicVolume: number;
@@ -350,43 +359,23 @@ export const useAppStore = create<AppState>((set, get) => ({
   lastImmersiveMessages: [],
   setLastImmersiveMessages: (messages) => set({ lastImmersiveMessages: messages }),
   
-  // Background music for immersive mode - persisted to localStorage
-  backgroundMusic: (() => {
-    try {
-      const stored = localStorage.getItem('immersive-background-music');
-      if (stored) {
-        return JSON.parse(stored);
-      }
-    } catch (e) {
-      console.error('Failed to load background music:', e);
-    }
-    return [];
-  })(),
-  addBackgroundMusic: (track) => {
+  // Background music for immersive mode - persisted to Tauri app data
+  // Tracks are loaded asynchronously on app init via loadBackgroundMusicFromTauri()
+  backgroundMusic: [],
+  setBackgroundMusic: (tracks) => set({ backgroundMusic: tracks }),
+  addBackgroundMusicTrack: (track) => {
     set((state) => {
       if (state.backgroundMusic.length >= 10) {
         console.warn('Maximum 10 tracks allowed');
         return state;
       }
-      const newTracks = [...state.backgroundMusic, track];
-      try {
-        localStorage.setItem('immersive-background-music', JSON.stringify(newTracks));
-      } catch (e) {
-        console.error('Failed to persist background music:', e);
-      }
-      return { backgroundMusic: newTracks };
+      return { backgroundMusic: [...state.backgroundMusic, track] };
     });
   },
-  removeBackgroundMusic: (id) => {
-    set((state) => {
-      const newTracks = state.backgroundMusic.filter(t => t.id !== id);
-      try {
-        localStorage.setItem('immersive-background-music', JSON.stringify(newTracks));
-      } catch (e) {
-        console.error('Failed to persist background music:', e);
-      }
-      return { backgroundMusic: newTracks };
-    });
+  removeBackgroundMusicTrack: (id) => {
+    set((state) => ({
+      backgroundMusic: state.backgroundMusic.filter(t => t.id !== id)
+    }));
   },
   backgroundMusicEnabled: (() => {
     try {
@@ -420,3 +409,66 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ backgroundMusicVolume: volume });
   },
 }));
+
+// ============ Background Music Async Helpers ============
+
+/**
+ * Load all background music tracks from Tauri storage.
+ * Call this on app initialization.
+ */
+export async function loadBackgroundMusicFromTauri(): Promise<void> {
+  try {
+    const tracks = await getBackgroundTracks();
+    const loadedTracks: LoadedTrack[] = [];
+    
+    // Load data URLs for each track
+    for (const track of tracks) {
+      const dataUrl = await getBackgroundTrackData(track.id);
+      if (dataUrl) {
+        loadedTracks.push({
+          id: track.id,
+          name: track.name,
+          dataUrl,
+        });
+      }
+    }
+    
+    useAppStore.getState().setBackgroundMusic(loadedTracks);
+  } catch (err) {
+    console.error('Failed to load background music from Tauri:', err);
+  }
+}
+
+/**
+ * Add a new background music track.
+ * Saves to Tauri storage and updates the store.
+ */
+export async function addBackgroundMusic(id: string, name: string, dataUrl: string): Promise<boolean> {
+  const state = useAppStore.getState();
+  if (state.backgroundMusic.length >= 10) {
+    console.warn('Maximum 10 tracks allowed');
+    return false;
+  }
+  
+  try {
+    await saveBackgroundTrack(id, name, dataUrl);
+    state.addBackgroundMusicTrack({ id, name, dataUrl });
+    return true;
+  } catch (err) {
+    console.error('Failed to save background track:', err);
+    return false;
+  }
+}
+
+/**
+ * Remove a background music track.
+ * Deletes from Tauri storage and updates the store.
+ */
+export async function removeBackgroundMusic(id: string): Promise<void> {
+  try {
+    await deleteBackgroundTrack(id);
+    useAppStore.getState().removeBackgroundMusicTrack(id);
+  } catch (err) {
+    console.error('Failed to remove background track:', err);
+  }
+}

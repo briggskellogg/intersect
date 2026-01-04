@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { useAppStore } from './store';
+import { useAppStore, loadBackgroundMusicFromTauri } from './store';
 import { ApiKeyModal } from './components/ApiKeyModal';
 import { ChatWindow } from './components/ChatWindow';
 import { Settings } from './components/Settings';
 import { initApp, getUserProfile, getActivePersonaProfile, InitResult } from './hooks/useTauri';
-import { AGENTS } from './constants/agents';
+import { GOVERNOR } from './constants/agents';
+import governorIcon from './assets/governor.png';
 
 function App() {
   const {
@@ -33,6 +34,9 @@ function App() {
         
         const profile = await getUserProfile();
         setUserProfile(profile);
+        
+        // Load background music tracks from Tauri storage
+        await loadBackgroundMusicFromTauri();
         
         // Check if BOTH API keys are needed (require OpenAI AND Anthropic)
         if (!profile.apiKey || !profile.anthropicKey) {
@@ -74,42 +78,44 @@ function App() {
     }
   };
 
-  // Loading screen
+  // Loading screen - clean, minimal
   if (isLoading) {
     return (
-      <div className="app-container flex items-center justify-center bg-ai-mesh">
+      <div className="app-container flex items-center justify-center bg-void">
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="text-center"
+          className="flex flex-col items-center gap-6"
         >
-          <div className="flex gap-4 mb-6 justify-center">
+          {/* Governor icon with subtle glow */}
+          <div className="relative">
             <motion.div
-              animate={{ scale: [1, 1.1, 1], opacity: [0.7, 1, 0.7] }}
-              transition={{ duration: 1.5, repeat: Infinity, delay: 0 }}
-              className="w-12 h-12 rounded-full overflow-hidden border-2"
-              style={{ borderColor: AGENTS.instinct.color }}
+              className="w-16 h-16 rounded-full overflow-hidden"
+              animate={{ opacity: [0.6, 1, 0.6] }}
+              transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
             >
-              <img src={AGENTS.instinct.avatar} alt="Instinct" className="w-full h-full object-cover" />
+              <img src={governorIcon} alt="Governor" className="w-full h-full object-cover" />
             </motion.div>
+            {/* Subtle ring */}
             <motion.div
-              animate={{ scale: [1, 1.1, 1], opacity: [0.7, 1, 0.7] }}
-              transition={{ duration: 1.5, repeat: Infinity, delay: 0.3 }}
-              className="w-12 h-12 rounded-full overflow-hidden border-2"
-              style={{ borderColor: AGENTS.logic.color }}
-            >
-              <img src={AGENTS.logic.avatar} alt="Logic" className="w-full h-full object-cover" />
-            </motion.div>
-            <motion.div
-              animate={{ scale: [1, 1.1, 1], opacity: [0.7, 1, 0.7] }}
-              transition={{ duration: 1.5, repeat: Infinity, delay: 0.6 }}
-              className="w-12 h-12 rounded-full overflow-hidden border-2"
-              style={{ borderColor: AGENTS.psyche.color }}
-            >
-              <img src={AGENTS.psyche.avatar} alt="Psyche" className="w-full h-full object-cover" />
-            </motion.div>
+              className="absolute inset-[-4px] rounded-full border"
+              style={{ borderColor: `${GOVERNOR.color}40` }}
+              animate={{ opacity: [0.3, 0.6, 0.3] }}
+              transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+            />
           </div>
-          <p className="text-ash font-mono text-sm">Loading...</p>
+          
+          {/* Minimal loading dots */}
+          <div className="flex gap-1">
+            {[0, 1, 2].map((i) => (
+              <motion.div
+                key={i}
+                className="w-1 h-1 rounded-full bg-ash/50"
+                animate={{ opacity: [0.3, 1, 0.3] }}
+                transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
+              />
+            ))}
+          </div>
         </motion.div>
       </div>
     );

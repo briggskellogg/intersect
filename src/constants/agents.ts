@@ -23,24 +23,24 @@ export const AGENTS: Record<AgentType, AgentConfig> = {
   instinct: {
     id: 'instinct',
     name: 'Snap',
-    color: '#E07A5F',
-    softColor: '#E07A5F15',
+    color: '#EF4444', // Red - Instinct
+    softColor: '#EF444415',
     description: 'Gut feelings, intuition, emotional intelligence, pattern recognition',
     avatar: instinctAvatar,
   },
   logic: {
     id: 'logic',
     name: 'Dot',
-    color: '#6BB8C9',
-    softColor: '#6BB8C915',
+    color: '#00D4FF', // Cyan - Logic
+    softColor: '#00D4FF15',
     description: 'Analytical thinking, structured reasoning, evidence-based conclusions',
     avatar: logicAvatar,
   },
   psyche: {
     id: 'psyche',
     name: 'Puff',
-    color: '#A78BCA',
-    softColor: '#A78BCA15',
+    color: '#E040FB', // Purple - Psyche
+    softColor: '#E040FB15',
     description: 'Self-awareness, emotional depth, motivations, the "why" behind the "what"',
     avatar: psycheAvatar,
   },
@@ -48,11 +48,12 @@ export const AGENTS: Record<AgentType, AgentConfig> = {
 
 // Disco mode agents - challenging, opinionated, personality-forward
 // Different names and avatars from normal mode
+// Mappings: Instinct→Swarm, Logic→Spin, Psyche→Storm
 export const DISCO_AGENTS: Record<AgentType, AgentConfig> = {
   instinct: {
     id: 'instinct',
     name: 'Swarm',
-    color: '#EF4444', // Red - matching instinct theme
+    color: '#EF4444', // Red - Instinct
     softColor: '#EF444415',
     description: 'Raw impulse, unfiltered instinct, the part that moves before thinking',
     avatar: discoSnapAvatar,
@@ -60,16 +61,16 @@ export const DISCO_AGENTS: Record<AgentType, AgentConfig> = {
   logic: {
     id: 'logic',
     name: 'Spin',
-    color: '#22D3EE', // Brighter cyan
-    softColor: '#22D3EE15',
+    color: '#00D4FF', // Cyan - Logic
+    softColor: '#00D4FF15',
     description: 'Cold analysis, pattern recognition, the part that sees contradictions',
     avatar: discoDotAvatar,
   },
   psyche: {
     id: 'psyche',
     name: 'Storm',
-    color: '#C084FC', // Brighter purple
-    softColor: '#C084FC15',
+    color: '#E040FB', // Purple - Psyche
+    softColor: '#E040FB15',
     description: 'Deep intuition, emotional truth, the part that knows what you\'re avoiding',
     avatar: discoPuffAvatar,
   },
@@ -88,8 +89,8 @@ export const AGENT_ORDER: AgentType[] = ['psyche', 'logic', 'instinct'];
 export const GOVERNOR = {
   id: 'system',
   name: 'Governor',
-  color: '#94A3B8', // Slate gray
-  softColor: '#94A3B815',
+  color: '#EAB308', // Amber - Governor
+  softColor: '#EAB30815',
   description: 'System administrator and guide',
   avatar: governorAvatar,
 };

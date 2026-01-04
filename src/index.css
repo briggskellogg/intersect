@@ -86,25 +86,36 @@
   --color-gold-soft: #C9A22712;
   --color-gold-glow: #C9A22725;
   
-  /* Agent colors - Soft, sophisticated */
-  --color-instinct: #E07A5F;
-  --color-instinct-soft: #E07A5F0D;
-  --color-instinct-glow: #E07A5F20;
+  /* Agent colors - Semantic color system */
+  --color-instinct: #EF4444;
+  --color-instinct-soft: #EF44440D;
+  --color-instinct-glow: #EF444420;
   
-  --color-logic: #6BB8C9;
-  --color-logic-soft: #6BB8C90D;
-  --color-logic-glow: #6BB8C920;
+  --color-logic: #00D4FF;
+  --color-logic-soft: #00D4FF0D;
+  --color-logic-glow: #00D4FF20;
   
-  --color-psyche: #A78BCA;
-  --color-psyche-soft: #A78BCA0D;
-  --color-psyche-glow: #A78BCA20;
+  --color-psyche: #E040FB;
+  --color-psyche-soft: #E040FB0D;
+  --color-psyche-glow: #E040FB20;
   
-  /* Debate mode colors */
-  --color-debate-mild: #EAB308;
-  --color-debate-intense: #EF4444;
+  /* Governor color */
+  --color-governor: #EAB308;
+  --color-governor-soft: #EAB3080D;
+  --color-governor-glow: #EAB30820;
   
-  /* Accent */
-  --color-aurora: #6BB8C9;
+  /* Connectivity color */
+  --color-connectivity: #10B981;
+  --color-connectivity-soft: #10B9810D;
+  --color-connectivity-glow: #10B98120;
+  
+  /* Navigation color */
+  --color-navigation: #3B82F6;
+  --color-navigation-soft: #3B82F60D;
+  --color-navigation-glow: #3B82F620;
+  
+  /* Accent - uses Logic color */
+  --color-aurora: #00D4FF;
 }
 
 /* Light theme overrides */
@@ -125,14 +136,23 @@ html.light {
   --color-gold-glow: #A67C0035;
   
   /* Agent colors - keep vibrant but adjust soft/glow for light bg */
-  --color-instinct-soft: #E07A5F18;
-  --color-instinct-glow: #E07A5F35;
+  --color-instinct-soft: #EF444418;
+  --color-instinct-glow: #EF444435;
   
-  --color-logic-soft: #6BB8C918;
-  --color-logic-glow: #6BB8C935;
+  --color-logic-soft: #00D4FF18;
+  --color-logic-glow: #00D4FF35;
   
-  --color-psyche-soft: #A78BCA18;
-  --color-psyche-glow: #A78BCA35;
+  --color-psyche-soft: #E040FB18;
+  --color-psyche-glow: #E040FB35;
+  
+  --color-governor-soft: #EAB30818;
+  --color-governor-glow: #EAB30835;
+  
+  --color-connectivity-soft: #10B98118;
+  --color-connectivity-glow: #10B98135;
+  
+  --color-navigation-soft: #3B82F618;
+  --color-navigation-glow: #3B82F635;
 }
 
 /* Base styles - transparent for rounded corners */

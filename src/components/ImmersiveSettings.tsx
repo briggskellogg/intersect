@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useAppStore } from '../store';
+import { useAppStore, addBackgroundMusic, removeBackgroundMusic } from '../store';
 import { DISCO_AGENTS, GOVERNOR } from '../constants/agents';
 import { Play, Square, Music, Trash2, Plus, Volume2, ElevenLabsIcon } from './icons';
 import { v4 as uuidv4 } from 'uuid';
@@ -25,8 +25,6 @@ export function ImmersiveSettings({ isOpen, onClose }: ImmersiveSettingsProps) {
     immersiveVoices, 
     setImmersiveVoice,
     backgroundMusic,
-    addBackgroundMusic,
-    removeBackgroundMusic,
     backgroundMusicVolume,
     setBackgroundMusicVolume,
   } = useAppStore();
@@ -165,14 +163,14 @@ export function ImmersiveSettings({ isOpen, onClose }: ImmersiveSettingsProps) {
               <div className="p-5 space-y-4">
                 {/* Disco Voice (Game Mode agents) */}
                 <VoiceRow
-                  sublabel="Storm, Spin, Swarm"
+                  sublabel="Swarm, Spin, Storm"
                   avatars={[DISCO_AGENTS.instinct.avatar, DISCO_AGENTS.logic.avatar, DISCO_AGENTS.psyche.avatar]}
                   value={localVoices.disco}
                   onChange={(v) => setLocalVoices(prev => ({ ...prev, disco: v }))}
                   isPreviewing={previewingVoice === 'disco'}
                   canPreview={canPreview('disco')}
                   onPreview={() => previewingVoice === 'disco' ? stopPreview() : handlePreviewVoice('disco')}
-                  accentColor="#C084FC"
+                  accentColor="#EF4444"
                   isDisco
                 />
 
@@ -192,8 +190,8 @@ export function ImmersiveSettings({ isOpen, onClose }: ImmersiveSettingsProps) {
                 {/* Hint */}
                 {!elevenLabsApiKey && (
                   <div className="flex items-center justify-center gap-1.5 pt-1">
-                    <ElevenLabsIcon size={12} className="text-amber-400/60" />
-                    <p className="text-[10px] text-amber-400/60">
+                    <ElevenLabsIcon size={12} className="text-emerald-400/60" />
+                    <p className="text-[10px] text-emerald-400/60">
                       Configure ElevenLabs API key in profile to enable voice
                     </p>
                   </div>
@@ -236,7 +234,7 @@ export function ImmersiveSettings({ isOpen, onClose }: ImmersiveSettingsProps) {
                         <span className="text-[10px] text-slate-400 flex-1 truncate">{track.name}</span>
                         <button
                           onClick={() => removeBackgroundMusic(track.id)}
-                          className="text-slate-600 hover:text-red-400 transition-colors p-1"
+                          className="text-slate-600 hover:text-red-400 transition-colors p-1 cursor-pointer"
                         >
                           <Trash2 size={10} />
                         </button>
@@ -257,25 +255,24 @@ export function ImmersiveSettings({ isOpen, onClose }: ImmersiveSettingsProps) {
                         accept=".mp3,audio/mpeg"
                         multiple
                         className="hidden"
-                        onChange={(e) => {
+                        onChange={async (e) => {
                           const files = e.target.files;
                           if (!files) return;
                           
-                          Array.from(files).slice(0, 10 - backgroundMusic.length).forEach((file) => {
+                          const filesToProcess = Array.from(files).slice(0, 10 - backgroundMusic.length);
+                          
+                          for (const file of filesToProcess) {
                             // Only accept mp3 files
-                            if (!file.name.toLowerCase().endsWith('.mp3')) return;
+                            if (!file.name.toLowerCase().endsWith('.mp3')) continue;
                             
-                            const reader = new FileReader();
-                            reader.onload = () => {
-                              const dataUrl = reader.result as string;
-                              addBackgroundMusic({
-                                id: uuidv4(),
-                                name: file.name,
-                                dataUrl,
-                              });
-                            };
-                            reader.readAsDataURL(file);
-                          });
+                            const dataUrl = await new Promise<string>((resolve) => {
+                              const reader = new FileReader();
+                              reader.onload = () => resolve(reader.result as string);
+                              reader.readAsDataURL(file);
+                            });
+                            
+                            await addBackgroundMusic(uuidv4(), file.name, dataUrl);
+                          }
                           
                           // Reset input
                           e.target.value = '';
@@ -351,7 +348,7 @@ function VoiceRow({ label, sublabel, avatars, value, onChange, isPreviewing, can
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 mb-1">
           {isDisco ? (
-            <span className="px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[9px] font-medium border border-amber-500/30">
+            <span className="px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-400 text-[9px] font-medium border border-red-500/30">
               {sublabel}
             </span>
           ) : (

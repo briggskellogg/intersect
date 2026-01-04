@@ -59,7 +59,10 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
   // Count active agents for Governor logic
   const activeCount = Object.values(agentModes).filter(m => m === 'on').length;
   
-  const { activePersonaProfile, setActivePersonaProfile, elevenLabsApiKey, isSettingsOpen, isImmersiveMode, setImmersiveMode } = useAppStore();
+  const { activePersonaProfile, setActivePersonaProfile, elevenLabsApiKey, isSettingsOpen, isImmersiveMode, setImmersiveMode, theme } = useAppStore();
+  
+  // Determine if we're in light mode
+  const isLightMode = theme === 'light' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: light)').matches);
   
   const [inputValue, setInputValue] = useState('');
   const [governorIcon, setGovernorIcon] = useState<string | null>(null);
@@ -908,7 +911,11 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
       
       {/* Header - Clean, centered logo with space for macOS window controls */}
       <header 
-        className="relative flex items-center justify-between px-4 py-2 border-b border-smoke/30 bg-obsidian/80 backdrop-blur-md cursor-default"
+        className={`relative flex items-center justify-between px-4 py-2 border-b backdrop-blur-md cursor-default ${
+          isLightMode 
+            ? 'border-slate-200 bg-white/80' 
+            : 'border-smoke/30 bg-obsidian/80'
+        }`}
         onMouseDown={async (e) => {
           const isButton = (e.target as HTMLElement).closest('button');
           if (isButton) return;
@@ -950,12 +957,16 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
           </div>
 
           {/* New conversation + Immersive mode pill */}
-          <div className="flex items-center gap-1 bg-charcoal/60 rounded-full px-1.5 py-1 border border-smoke/30">
+          <div className={`flex items-center gap-1 rounded-full px-1.5 py-1 border ${
+            isLightMode 
+              ? 'bg-slate-100/80 border-slate-200' 
+              : 'bg-charcoal/60 border-smoke/30'
+          }`}>
             <div className="relative group/text">
               <button
                 onClick={() => handleNewConversation()}
-                className="group flex items-center gap-1 px-1.5 py-1 rounded-full transition-all cursor-pointer hover:bg-cyan-500/20"
-                style={{ color: '#00D4FF' }}
+                className="group flex items-center gap-1 px-1.5 py-1 rounded-full transition-all cursor-pointer hover:bg-emerald-500/20"
+                style={{ color: '#10B981' }}
                 title="New conversation (⌘N)"
               >
                 <BotMessageSquare className="w-3.5 h-3.5 opacity-70 group-hover:opacity-100 transition-opacity" strokeWidth={1.5} />
@@ -965,11 +976,11 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
               {/* Text Mode hover tooltip */}
               <div 
                 className="absolute top-full mt-2 left-0 px-3 py-2 bg-obsidian/95 border rounded-lg opacity-0 invisible group-hover/text:opacity-100 group-hover/text:visible transition-all shadow-xl w-[280px] z-50 pointer-events-auto"
-                style={{ borderColor: 'rgba(0, 212, 255, 0.4)' }}
+                style={{ borderColor: 'rgba(16, 185, 129, 0.4)' }}
               >
                 <div className="flex items-center gap-2 mb-1.5">
-                  <BotMessageSquare size={12} className="text-cyan-400" strokeWidth={1.5} />
-                  <span className="text-xs font-sans font-medium text-cyan-300">TEXT MODE</span>
+                  <BotMessageSquare size={12} className="text-emerald-400" strokeWidth={1.5} />
+                  <span className="text-xs font-sans font-medium text-emerald-300">TEXT MODE</span>
                   <kbd className="px-1.5 py-0.5 bg-smoke/30 rounded border border-smoke/40 text-[8px] font-mono text-ash/60">⌘N</kbd>
                 </div>
                 <p className="text-[10px] text-ash/80 font-mono leading-relaxed">
@@ -983,8 +994,8 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
             <div className="relative group/voice">
               <button
                 onClick={() => setImmersiveMode(true)}
-                className="group flex items-center gap-1 px-1.5 py-1 rounded-full transition-all cursor-pointer hover:bg-red-500/20"
-                style={{ color: '#EF4444' }}
+                className="group flex items-center gap-1 px-1.5 py-1 rounded-full transition-all cursor-pointer hover:bg-blue-500/20"
+                style={{ color: '#3B82F6' }}
                 title="Game Mode (⌘G)"
               >
                 <GameModeIcon size={13} className="opacity-70 group-hover:opacity-100 transition-opacity" />
@@ -994,22 +1005,26 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
               {/* Hover tooltip */}
               <div 
                 className="absolute top-full mt-2 left-0 px-3 py-2 bg-obsidian/95 border rounded-lg opacity-0 invisible group-hover/voice:opacity-100 group-hover/voice:visible transition-all shadow-xl w-[280px] z-50 pointer-events-auto"
-                style={{ borderColor: 'rgba(239, 68, 68, 0.4)' }}
+                style={{ borderColor: 'rgba(59, 130, 246, 0.4)' }}
               >
                 <div className="flex items-center gap-2 mb-1.5">
-                  <GameModeIcon size={12} className="text-red-400" />
-                  <span className="text-xs font-sans font-medium text-red-300">GAME MODE</span>
+                  <GameModeIcon size={12} className="text-blue-400" />
+                  <span className="text-xs font-sans font-medium text-blue-300">GAME MODE</span>
                   <kbd className="px-1.5 py-0.5 bg-smoke/30 rounded border border-smoke/40 text-[8px] font-mono text-ash/60">⌘G</kbd>
                 </div>
                 <p className="text-[10px] text-ash/80 font-mono leading-relaxed">
-                  An immersive <strong>speaking experience</strong> with Storm, Spin, and Swarm — challenging inner voices that push back, question assumptions, and call out blind spots. Speak freely and say "submit" when ready.
+                  An immersive <strong>speaking experience</strong> with Swarm, Spin, and Storm — challenging inner voices that push back, question assumptions, and call out blind spots. Speak freely and say "submit" when ready.
                 </p>
               </div>
             </div>
           </div>
           
           {/* Agent avatars - stacked with single green dot (always normal agents in text mode) */}
-          <div className="relative flex items-center bg-charcoal/60 rounded-full px-2 py-1.5 border border-smoke/30">
+          <div className={`relative flex items-center rounded-full px-2 py-1.5 border ${
+            isLightMode 
+              ? 'bg-slate-100/80 border-slate-200' 
+              : 'bg-charcoal/60 border-smoke/30'
+          }`}>
             <div className="flex -space-x-2">
               {AGENT_ORDER.map((agentId) => {
                 const agentConfig = AGENTS[agentId]; // Always normal agents in text mode
@@ -1054,7 +1069,7 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
           {/* Governor - opens settings */}
           <button
             onClick={onOpenSettings}
-            className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-smoke/20 transition-all cursor-pointer group/governor"
+            className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-amber-500/10 transition-all cursor-pointer group/governor"
             title="Settings (⌘P)"
           >
             {/* Governor icon */}
@@ -1168,12 +1183,18 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
           <button
             onClick={copyConversation}
             disabled={messages.length === 0}
-            className={`flex items-center justify-center gap-1.5 px-[11px] py-1.5 rounded-lg transition-all border border-transparent hover:bg-charcoal/60 hover:border-smoke/30 ${
+            className={`flex items-center justify-center gap-1.5 px-[11px] py-1.5 rounded-lg transition-all border border-transparent ${
+              isLightMode 
+                ? 'hover:bg-slate-100 hover:border-slate-200' 
+                : 'hover:bg-charcoal/60 hover:border-smoke/30'
+            } ${
               messages.length === 0 
                 ? 'text-ash/20 cursor-not-allowed' 
                 : copied 
-                  ? 'text-ash/70'
-                  : 'text-ash/50 hover:text-ash/80 cursor-pointer'
+                  ? isLightMode ? 'text-slate-600' : 'text-ash/70'
+                  : isLightMode 
+                    ? 'text-slate-400 hover:text-slate-600 cursor-pointer'
+                    : 'text-ash/50 hover:text-ash/80 cursor-pointer'
             }`}
             title="Copy conversation to clipboard (⌘C)"
           >
@@ -1190,7 +1211,9 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 10 }}
-                  className="absolute bottom-full mb-2 left-0 right-0 px-4 py-2.5 bg-charcoal/80 backdrop-blur-xl border rounded-2xl shadow-2xl"
+                  className={`absolute bottom-full mb-2 left-0 right-0 px-4 py-2.5 backdrop-blur-xl border rounded-2xl shadow-2xl ${
+                    isLightMode ? 'bg-white/90' : 'bg-charcoal/80'
+                  }`}
                   style={{ borderColor: 'rgba(234, 179, 8, 0.3)' }}
                 >
                   <div className="flex items-start gap-2">
@@ -1207,9 +1230,13 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
             </AnimatePresence>
             
             {/* Floating chat input */}
-            <div className={`bg-charcoal/80 backdrop-blur-xl rounded-2xl border transition-all relative flex items-center shadow-2xl overflow-hidden ${
-              isTranscribing ? 'border-amber-500/50' : 'border-smoke/30'
-            }`}>
+            <div className={`backdrop-blur-xl rounded-2xl border transition-all relative flex items-center shadow-2xl overflow-hidden ${
+              isTranscribing 
+                ? 'border-amber-500/50' 
+                : isLightMode 
+                  ? 'border-slate-200' 
+                  : 'border-smoke/30'
+            } ${isLightMode ? 'bg-white/90' : 'bg-charcoal/80'}`}>
             {/* User identity indicator on left with pulsing border */}
             <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center gap-2 pointer-events-none">
               <div className="relative">
@@ -1299,10 +1326,16 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
           {/* Microphone button - voice transcription */}
           <button
             onClick={toggleTranscription}
-            className={`flex items-center justify-center gap-1.5 px-[11px] py-1.5 rounded-lg transition-all cursor-pointer border border-transparent hover:bg-charcoal/60 hover:border-smoke/30 ${
+            className={`flex items-center justify-center gap-1.5 px-[11px] py-1.5 rounded-lg transition-all cursor-pointer border border-transparent ${
+              isLightMode 
+                ? 'hover:bg-slate-100 hover:border-slate-200' 
+                : 'hover:bg-charcoal/60 hover:border-smoke/30'
+            } ${
               isTranscribing || isConnecting
                 ? 'text-amber-400' 
-                : 'text-ash/50 hover:text-ash/80'
+                : isLightMode 
+                  ? 'text-slate-400 hover:text-slate-600'
+                  : 'text-ash/50 hover:text-ash/80'
             }`}
             title={isTranscribing ? 'Stop transcription (⌘S)' : isConnecting ? 'Connecting...' : 'Start voice transcription (⌘S)'}
             >
@@ -1322,7 +1355,7 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
         
         {/* Privacy notice */}
         <div className="flex items-center justify-center gap-1.5 mt-2">
-          <ShieldCheck className="w-3.5 h-3.5 text-cyan-500/60" strokeWidth={1.5} />
+          <ShieldCheck className="w-3.5 h-3.5 text-emerald-500/60" strokeWidth={1.5} />
           <span className="text-[11px] text-ash/40 font-mono">
             Your data stays on this device and is never used to train models... probably.
           </span>

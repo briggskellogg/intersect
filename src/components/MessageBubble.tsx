@@ -164,10 +164,16 @@ export function MessageBubble({ message, isLatest: _isLatest, governorIcon, isDi
         <div
           className={`px-3 py-2 rounded-2xl ${
             isUser
-              ? 'bg-smoke/40 text-pearl/90'
+              ? isLightMode 
+                ? 'bg-slate-200/80 text-slate-800' 
+                : 'bg-smoke/40 text-pearl/90'
               : isGovernorThoughts
-              ? 'bg-charcoal/25 border border-ash/40 opacity-75'
-              : 'bg-charcoal/40 text-pearl'
+              ? isLightMode
+                ? 'bg-slate-100/90 border border-slate-300/60 opacity-85'
+                : 'bg-charcoal/25 border border-ash/40 opacity-75'
+              : isLightMode
+                ? 'bg-white/90 border border-slate-200/80 text-slate-900 shadow-sm'
+                : 'bg-charcoal/40 text-pearl'
           }`}
           style={{ maxWidth: 'calc(75vw - 60px)' }}
         >
@@ -260,7 +266,7 @@ export function MessageBubble({ message, isLatest: _isLatest, governorIcon, isDi
                 ? isGovernorThoughts 
                   ? { color: `${GOVERNOR.color}aa` } // Muted governor color for thoughts (dark mode only)
                   : isGovernor
-                    ? { color: `${GOVERNOR.color}dd` } // Full color for Governor responses (dark mode only)
+                    ? undefined // Governor responses are white in text mode
                     : { color: `${agent.color}dd` } // Agent color (dark mode only)
                 : undefined
             }

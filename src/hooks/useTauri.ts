@@ -396,3 +396,27 @@ export async function getGovernorImage(): Promise<string | null> {
 export async function getGovernorSwirlingVideo(): Promise<string | null> {
   return invoke<string | null>('get_governor_swirling_video');
 }
+
+// ============ Background Music Storage ============
+
+export interface BackgroundTrack {
+  id: string;
+  name: string;
+  filename: string;
+}
+
+export async function saveBackgroundTrack(id: string, name: string, data: string): Promise<BackgroundTrack> {
+  return invoke<BackgroundTrack>('save_background_track', { id, name, data });
+}
+
+export async function getBackgroundTracks(): Promise<BackgroundTrack[]> {
+  return invoke<BackgroundTrack[]>('get_background_tracks');
+}
+
+export async function deleteBackgroundTrack(id: string): Promise<void> {
+  await invoke('delete_background_track', { id });
+}
+
+export async function getBackgroundTrackData(id: string): Promise<string | null> {
+  return invoke<string | null>('get_background_track_data', { id });
+}
