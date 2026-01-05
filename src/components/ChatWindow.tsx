@@ -71,7 +71,7 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
     actionLabel?: string;
     onAction?: () => void;
   } | null>(null);
-  
+
 
   // Get user avatar based on dominant trait
   const userAvatar = activePersonaProfile?.dominantTrait 
@@ -171,28 +171,28 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
       
       try {
         // Always start a new conversation on app launch
-        const conv = await createConversation(false);
-        setCurrentConversation(conv);
-        
-        // Governor is greeting the user
-        setIsLoading(true);
-        setThinkingPhase('thinking');
+          const conv = await createConversation(false);
+          setCurrentConversation(conv);
+          
+          // Governor is greeting the user
+          setIsLoading(true);
+          setThinkingPhase('thinking');
         setThinkingAgent('system');
-        
-        // Get Governor greeting
-        const openerResult = await getConversationOpener();
-        
-        const openerMessage: Message = {
-          id: uuidv4(),
-          conversationId: conv.id,
+          
+          // Get Governor greeting
+          const openerResult = await getConversationOpener();
+          
+          const openerMessage: Message = {
+            id: uuidv4(),
+            conversationId: conv.id,
           role: 'governor',
-          content: openerResult.content,
-          responseType: 'primary',
-          timestamp: new Date(),
-        };
-        addMessage(openerMessage);
-        setIsLoading(false);
-        setThinkingAgent(null);
+            content: openerResult.content,
+            responseType: 'primary',
+            timestamp: new Date(),
+          };
+          addMessage(openerMessage);
+          setIsLoading(false);
+          setThinkingAgent(null);
       } catch (err) {
         console.error('Failed to init conversation:', err);
         const errorMessage = err instanceof Error ? err.message : String(err);
@@ -427,7 +427,7 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
             if (!(e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement)) {
               const selection = window.getSelection();
               if (!selection || selection.toString().length === 0) {
-                e.preventDefault();
+              e.preventDefault();
                 copyConversation();
               }
             }
@@ -963,16 +963,16 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
               : 'bg-charcoal/60 border-smoke/30'
           }`}>
             <div className="relative group/text">
-              <button
+          <button
                 onClick={() => handleNewConversation()}
                 className="group flex items-center gap-1 px-1.5 py-1 rounded-full transition-all cursor-pointer hover:bg-emerald-500/20"
                 style={{ color: '#10B981' }}
                 title="New conversation (⌘N)"
-              >
+          >
                 <BotMessageSquare className="w-3.5 h-3.5 opacity-70 group-hover:opacity-100 transition-opacity" strokeWidth={1.5} />
                 <kbd className="text-[8px] font-mono opacity-40 group-hover:opacity-70 transition-opacity">⌘N</kbd>
-              </button>
-              
+          </button>
+          
               {/* Text Mode hover tooltip */}
               <div 
                 className="absolute top-full mt-2 left-0 px-3 py-2 bg-obsidian/95 border rounded-lg opacity-0 invisible group-hover/text:opacity-100 group-hover/text:visible transition-all shadow-xl w-[280px] z-50 pointer-events-auto"
@@ -992,16 +992,16 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
             <div className="w-px h-4 bg-smoke/30" />
             
             <div className="relative group/voice">
-              <button
+          <button
                 onClick={() => setImmersiveMode(true)}
                 className="group flex items-center gap-1 px-1.5 py-1 rounded-full transition-all cursor-pointer hover:bg-blue-500/20"
                 style={{ color: '#3B82F6' }}
                 title="Game Mode (⌘G)"
-              >
+          >
                 <GameModeIcon size={13} className="opacity-70 group-hover:opacity-100 transition-opacity" />
                 <kbd className="text-[8px] font-mono opacity-40 group-hover:opacity-70 transition-opacity">⌘G</kbd>
-              </button>
-              
+          </button>
+          
               {/* Hover tooltip */}
               <div 
                 className="absolute top-full mt-2 left-0 px-3 py-2 bg-obsidian/95 border rounded-lg opacity-0 invisible group-hover/voice:opacity-100 group-hover/voice:visible transition-all shadow-xl w-[280px] z-50 pointer-events-auto"
@@ -1028,27 +1028,27 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
             <div className="flex -space-x-2">
               {AGENT_ORDER.map((agentId) => {
                 const agentConfig = AGENTS[agentId]; // Always normal agents in text mode
-                return (
+              return (
                   <div 
                     key={agentId} 
                     className="w-5 h-5 rounded-full overflow-hidden ring-2 ring-charcoal"
                   >
-                    <img 
-                      src={agentConfig.avatar} 
-                      alt={agentConfig.name}
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
+                      <img 
+                        src={agentConfig.avatar} 
+                        alt={agentConfig.name}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
                 );
               })}
             </div>
             {/* Single green active dot */}
-            <motion.div
+                      <motion.div
               className="absolute bottom-0 right-0 w-2 h-2 rounded-full border border-charcoal z-10"
-              style={{ backgroundColor: '#22C55E' }}
-              animate={{ opacity: [0.7, 1, 0.7] }}
-              transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-            />
+                        style={{ backgroundColor: '#22C55E' }}
+                        animate={{ opacity: [0.7, 1, 0.7] }}
+                        transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+                      />
           </div>
           
         </div>
@@ -1338,7 +1338,7 @@ export function ChatWindow({ onOpenSettings, recoveryNeeded, onRecoveryComplete 
                   : 'text-ash/50 hover:text-ash/80'
             }`}
             title={isTranscribing ? 'Stop transcription (⌘S)' : isConnecting ? 'Connecting...' : 'Start voice transcription (⌘S)'}
-            >
+          >
             <div className="relative">
               <VoiceSettings size={16} />
               {/* Amber dot when connected (not during connecting) */}

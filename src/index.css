@@ -413,3 +413,21 @@ textarea:focus-visible {
   }
 }
 
+/* Immersive mode atmospheric effects */
+.immersive-noise {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  mix-blend-mode: overlay;
+}
+
+.immersive-vignette-strong {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 65% 55% at 50% 45%, transparent 0%, transparent 25%, rgba(5, 5, 8, 0.5) 55%, rgba(5, 5, 8, 0.92) 100%);
+}
+

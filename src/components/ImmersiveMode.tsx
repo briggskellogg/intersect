@@ -1311,11 +1311,19 @@ export function ImmersiveMode() {
                     style={{ borderColor: GOVERNOR.color }}
                   >
                     <div className="flex items-start gap-2">
-                      <img 
-                        src={governorGameMode} 
-                        alt="Governor" 
-                        className="w-4 h-4 rounded-full flex-shrink-0 mt-0.5 opacity-70"
-                      />
+                      <div 
+                        className="w-4 h-4 rounded-full flex-shrink-0 mt-0.5 overflow-hidden"
+                        style={{
+                          WebkitMaskImage: 'radial-gradient(circle, white 50%, transparent 80%)',
+                          maskImage: 'radial-gradient(circle, white 50%, transparent 80%)',
+                        }}
+                      >
+                        <img 
+                          src={governorGameMode} 
+                          alt="Governor" 
+                          className="w-full h-full object-cover scale-150"
+                        />
+                      </div>
                       <div className="flex-1">
                         <span 
                           className="inline-block px-1.5 py-0.5 rounded text-[9px] font-mono font-medium mb-1"
@@ -1387,14 +1395,20 @@ export function ImmersiveMode() {
                   style={{ borderColor: GOVERNOR.color }}
                 >
                   <div className="flex items-start gap-2">
-                    <img 
-                      src={governorGameMode} 
-                      alt="Governor" 
-                      className="w-5 h-5 rounded-full flex-shrink-0 mt-0.5"
-                      style={{ 
-                        boxShadow: isGovernorSpeaking ? `0 0 8px ${GOVERNOR.color}60` : 'none',
+                    <div 
+                      className="w-5 h-5 rounded-full flex-shrink-0 mt-0.5 overflow-hidden relative"
+                      style={{
+                        WebkitMaskImage: 'radial-gradient(circle, white 50%, transparent 80%)',
+                        maskImage: 'radial-gradient(circle, white 50%, transparent 80%)',
+                        boxShadow: isGovernorSpeaking ? `0 0 12px ${GOVERNOR.color}80` : 'none',
                       }}
-                    />
+                    >
+                      <img 
+                        src={governorGameMode} 
+                        alt="Governor" 
+                        className="w-full h-full object-cover scale-150"
+                      />
+                    </div>
                     <div className="flex-1">
                       <span 
                         className="inline-block px-1.5 py-0.5 rounded text-[9px] font-mono font-medium mb-1"
@@ -1645,24 +1659,89 @@ export function ImmersiveMode() {
                 />
               )}
               
-              {/* Governor image - slow breathing animation */}
-              <motion.img 
-                src={governorGameMode} 
-                alt="Governor"
-                className="w-full h-full object-contain relative z-10"
-                animate={{
-                  scale: isGovernorSpeaking 
-                    ? [1, 1.015, 1] 
-                    : isThinking 
-                    ? [1, 0.995, 1]
-                    : 1,
-                }}
-                transition={{
-                  duration: 4.5,
-                  repeat: Infinity,
-                  ease: 'easeInOut',
-                }}
-              />
+              {/* Governor image container - circular with radial fade */}
+              <div className="relative w-full h-full">
+                {/* Spinning glow ring - creates rotation illusion */}
+                <motion.div
+                  className="absolute inset-[-8px] rounded-full pointer-events-none"
+                  style={{
+                    background: 'conic-gradient(from 0deg, transparent 0%, rgba(59, 130, 246, 0.3) 25%, transparent 50%, rgba(147, 51, 234, 0.2) 75%, transparent 100%)',
+                  }}
+                  animate={{
+                    rotate: [0, 360],
+                  }}
+                  transition={{
+                    duration: 20,
+                    repeat: Infinity,
+                    ease: 'linear',
+                  }}
+                />
+                
+                {/* Secondary counter-rotating glow */}
+                <motion.div
+                  className="absolute inset-[-4px] rounded-full pointer-events-none"
+                  style={{
+                    background: 'conic-gradient(from 180deg, transparent 0%, rgba(59, 130, 246, 0.15) 30%, transparent 60%, rgba(100, 116, 139, 0.1) 80%, transparent 100%)',
+                  }}
+                  animate={{
+                    rotate: [360, 0],
+                  }}
+                  transition={{
+                    duration: 15,
+                    repeat: Infinity,
+                    ease: 'linear',
+                  }}
+                />
+                
+                {/* Circular mask with radial fade - breathing scale */}
+                <motion.div 
+                  className="absolute inset-0 rounded-full overflow-hidden"
+                  style={{
+                    WebkitMaskImage: 'radial-gradient(circle, white 40%, transparent 70%)',
+                    maskImage: 'radial-gradient(circle, white 40%, transparent 70%)',
+                  }}
+                  animate={{
+                    scale: isGovernorSpeaking 
+                      ? [0.95, 1.05, 0.95]
+                      : isThinking
+                      ? [0.98, 1.02, 0.98]
+                      : [0.97, 1.03, 0.97],
+                  }}
+                  transition={{
+                    duration: isGovernorSpeaking ? 3 : 5,
+                    repeat: Infinity,
+                    ease: 'easeInOut',
+                  }}
+                >
+                  <img 
+                    src={governorGameMode} 
+                    alt="Governor"
+                    className="w-full h-full object-cover"
+                    style={{ transform: 'scale(1.35)' }}
+                  />
+                </motion.div>
+                
+                {/* Inner glow pulse */}
+                <motion.div
+                  className="absolute inset-0 rounded-full pointer-events-none"
+                  style={{
+                    background: isGovernorSpeaking 
+                      ? 'radial-gradient(circle, transparent 25%, rgba(59, 130, 246, 0.3) 45%, transparent 65%)'
+                      : isThinking
+                      ? 'radial-gradient(circle, transparent 25%, rgba(234, 179, 8, 0.25) 45%, transparent 65%)'
+                      : 'radial-gradient(circle, transparent 30%, rgba(59, 130, 246, 0.15) 50%, transparent 70%)',
+                  }}
+                  animate={{
+                    opacity: [0.5, 1, 0.5],
+                    scale: [0.98, 1.02, 0.98],
+                  }}
+                  transition={{
+                    duration: 4,
+                    repeat: Infinity,
+                    ease: 'easeInOut',
+                  }}
+                />
+              </div>
             </div>
           </div>
         </div>
