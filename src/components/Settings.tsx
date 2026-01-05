@@ -11,6 +11,7 @@ import {
   resetPersonalization,
   createConversation,
   getConversationOpener,
+  getJourneySessionsCompleted,
 } from '../hooks/useTauri';
 import { ApiKeyModal } from './ApiKeyModal';
 import governorTransparent from '../assets/governor-transparent.png';
@@ -434,6 +435,7 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
   const [showResetModal, setShowResetModal] = useState(false);
   const [includeConversations, setIncludeConversations] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [journeySessionsCompleted, setJourneySessionsCompleted] = useState<number>(0);
   // Convert weights to points (12 total, each 2-7)
   const weightsToPoints = (weight: number) => Math.round(weight * 12);
   const pointsToWeight = (points: number) => points / 12;
@@ -453,6 +455,15 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
       setSelectedDominantTrait(activePersonaProfile.dominantTrait);
     }
   }, [activePersonaProfile, selectedDominantTrait]);
+  
+  // Load journey sessions completed count
+  useEffect(() => {
+    if (activePersonaProfile?.id) {
+      getJourneySessionsCompleted(activePersonaProfile.id)
+        .then(setJourneySessionsCompleted)
+        .catch(console.error);
+    }
+  }, [activePersonaProfile?.id]);
   
   // Animated weights for smooth transitions
   const [animatedWeights, setAnimatedWeights] = useState({
@@ -887,12 +898,26 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
 
             {/* Footer - sticky at bottom */}
             <div className="flex items-center justify-between px-4 py-3 border-t border-smoke/30 shrink-0">
-              {/* Left: Copyright + Reset */}
+              {/* Left: Copyright + Reset + Journey Sessions */}
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-1.5">
                   <img src={governorTransparent} alt="" className="w-4 h-4 opacity-60" />
-                  <p className="text-xs text-ash/60 font-sans">Intersect v1.2.0</p>
+                  <p className="text-xs text-ash/60 font-sans">Intersect v1.2.1</p>
                 </div>
+                {/* Journey Sessions Completed counter */}
+                {journeySessionsCompleted > 0 && (
+                  <div 
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-full border border-emerald-500/30 bg-emerald-500/10"
+                    title={`${journeySessionsCompleted} Game Mode ${journeySessionsCompleted === 1 ? 'journey' : 'journeys'} completed`}
+                  >
+                    <span className="text-[10px] text-emerald-400 font-medium font-sans">
+                      {journeySessionsCompleted}
+                    </span>
+                    <span className="text-[9px] text-emerald-400/70 font-sans uppercase tracking-wider">
+                      {journeySessionsCompleted === 1 ? 'journey' : 'journeys'}
+                    </span>
+                  </div>
+                )}
                 <button
                   onClick={() => setShowResetModal(true)}
                   className="flex items-center gap-1 px-2 py-1 rounded-full border border-smoke/30 text-[10px] text-ash/50 hover:text-red-400 hover:border-red-400/30 transition-colors font-sans"

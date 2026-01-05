@@ -96,6 +96,23 @@ pub struct ConversationSummary {
     pub created_at: String,
 }
 
+// ============ Journey Session Tracking ============
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct JourneySession {
+    pub id: String,
+    pub profile_id: String,
+    pub conversation_id: String,
+    pub phase: String,              // "exploration", "resolution", "acceptance"
+    pub phase_confirmed: bool,
+    pub problem_summary: Option<String>,
+    pub resolution_summary: Option<String>,
+    pub acceptance_summary: Option<String>,
+    pub completed: bool,
+    pub started_at: String,
+    pub completed_at: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RecurringTheme {
     pub id: i64,
@@ -345,6 +362,37 @@ pub fn init_database(app_handle: &tauri::AppHandle) -> Result<()> {
         // Normalize totals to 11 (this is approximate, but close enough for migration)
         // We'll fix exact totals in a separate pass if needed
     }
+    
+    // Migration: Add journey_sessions_completed column to persona_profiles
+    let has_journey_sessions: bool = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('persona_profiles') WHERE name='journey_sessions_completed'",
+        [],
+        |row| Ok(row.get::<_, i64>(0)? > 0)
+    ).unwrap_or(false);
+    
+    if !has_journey_sessions {
+        let _ = conn.execute("ALTER TABLE persona_profiles ADD COLUMN journey_sessions_completed INTEGER DEFAULT 0", []);
+    }
+    
+    // Create journey_sessions table for tracking individual Game Mode journeys
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS journey_sessions (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            conversation_id TEXT NOT NULL,
+            phase TEXT NOT NULL DEFAULT 'exploration',
+            phase_confirmed INTEGER DEFAULT 0,
+            problem_summary TEXT,
+            resolution_summary TEXT,
+            acceptance_summary TEXT,
+            completed INTEGER DEFAULT 0,
+            started_at TEXT NOT NULL,
+            completed_at TEXT,
+            FOREIGN KEY (profile_id) REFERENCES persona_profiles(id),
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+        )",
+        []
+    )?;
     
     // Ensure a user profile exists (for API keys and message count)
     let count: i64 = conn.query_row(
@@ -1716,5 +1764,148 @@ pub fn reset_personalization_full(profile_id: &str) -> Result<()> {
         conn.execute("DELETE FROM messages WHERE 1=1", [])?;
         conn.execute("DELETE FROM conversations WHERE 1=1", [])?;
         Ok(())
+    })
+}
+
+// ============ JOURNEY SESSION FUNCTIONS ============
+
+/// Create a new journey session for Game Mode
+pub fn create_journey_session(profile_id: &str, conversation_id: &str) -> Result<JourneySession> {
+    let now = Utc::now().to_rfc3339();
+    let id = uuid::Uuid::new_v4().to_string();
+    
+    with_connection(|conn| {
+        conn.execute(
+            "INSERT INTO journey_sessions (id, profile_id, conversation_id, phase, phase_confirmed, completed, started_at)
+             VALUES (?1, ?2, ?3, 'exploration', 0, 0, ?4)",
+            params![id, profile_id, conversation_id, now]
+        )?;
+        
+        Ok(JourneySession {
+            id,
+            profile_id: profile_id.to_string(),
+            conversation_id: conversation_id.to_string(),
+            phase: "exploration".to_string(),
+            phase_confirmed: false,
+            problem_summary: None,
+            resolution_summary: None,
+            acceptance_summary: None,
+            completed: false,
+            started_at: now,
+            completed_at: None,
+        })
+    })
+}
+
+/// Get journey session by conversation ID
+pub fn get_journey_session_by_conversation(conversation_id: &str) -> Result<Option<JourneySession>> {
+    with_connection(|conn| {
+        let result = conn.query_row(
+            "SELECT id, profile_id, conversation_id, phase, phase_confirmed, problem_summary, 
+                    resolution_summary, acceptance_summary, completed, started_at, completed_at
+             FROM journey_sessions WHERE conversation_id = ?1",
+            params![conversation_id],
+            |row| {
+                Ok(JourneySession {
+                    id: row.get(0)?,
+                    profile_id: row.get(1)?,
+                    conversation_id: row.get(2)?,
+                    phase: row.get(3)?,
+                    phase_confirmed: row.get::<_, i64>(4)? != 0,
+                    problem_summary: row.get(5)?,
+                    resolution_summary: row.get(6)?,
+                    acceptance_summary: row.get(7)?,
+                    completed: row.get::<_, i64>(8)? != 0,
+                    started_at: row.get(9)?,
+                    completed_at: row.get(10)?,
+                })
+            }
+        ).optional()?;
+        
+        Ok(result)
+    })
+}
+
+/// Update journey phase (Governor suggests transition)
+pub fn update_journey_phase(session_id: &str, new_phase: &str, summary: Option<&str>) -> Result<()> {
+    with_connection(|conn| {
+        // Update phase and reset confirmation flag
+        conn.execute(
+            "UPDATE journey_sessions SET phase = ?1, phase_confirmed = 0 WHERE id = ?2",
+            params![new_phase, session_id]
+        )?;
+        
+        // Store summary for the previous phase based on which phase we're entering
+        if let Some(summary_text) = summary {
+            match new_phase {
+                "resolution" => {
+                    conn.execute(
+                        "UPDATE journey_sessions SET problem_summary = ?1 WHERE id = ?2",
+                        params![summary_text, session_id]
+                    )?;
+                }
+                "acceptance" => {
+                    conn.execute(
+                        "UPDATE journey_sessions SET resolution_summary = ?1 WHERE id = ?2",
+                        params![summary_text, session_id]
+                    )?;
+                }
+                _ => {}
+            }
+        }
+        
+        Ok(())
+    })
+}
+
+/// Confirm phase transition (user accepts Governor's suggestion)
+pub fn confirm_journey_phase(session_id: &str) -> Result<()> {
+    with_connection(|conn| {
+        conn.execute(
+            "UPDATE journey_sessions SET phase_confirmed = 1 WHERE id = ?1",
+            params![session_id]
+        )?;
+        Ok(())
+    })
+}
+
+/// Complete a journey session
+pub fn complete_journey_session(session_id: &str, acceptance_summary: Option<&str>) -> Result<()> {
+    let now = Utc::now().to_rfc3339();
+    
+    with_connection(|conn| {
+        // Get the profile ID for this session to increment counter
+        let profile_id: String = conn.query_row(
+            "SELECT profile_id FROM journey_sessions WHERE id = ?1",
+            params![session_id],
+            |row| row.get(0)
+        )?;
+        
+        // Mark session as complete
+        conn.execute(
+            "UPDATE journey_sessions SET completed = 1, completed_at = ?1, acceptance_summary = ?2, phase = 'acceptance', phase_confirmed = 1 WHERE id = ?3",
+            params![now, acceptance_summary, session_id]
+        )?;
+        
+        // Increment the journey sessions counter for this profile
+        conn.execute(
+            "UPDATE persona_profiles SET journey_sessions_completed = COALESCE(journey_sessions_completed, 0) + 1 WHERE id = ?1",
+            params![profile_id]
+        )?;
+        
+        Ok(())
+    })
+}
+
+/// Get journey sessions completed count for a profile
+pub fn get_journey_sessions_completed(profile_id: &str) -> Result<i64> {
+    with_connection(|conn| {
+        let count: i64 = conn.query_row(
+            "SELECT COALESCE(journey_sessions_completed, 0) FROM persona_profiles WHERE id = ?1",
+            params![profile_id],
+            |row| row.get(0)
+        ).unwrap_or(0);
+        
+        Ok(count)
     })
 }

@@ -127,6 +127,18 @@ interface AppState {
   setBackgroundMusicEnabled: (enabled: boolean) => void;
   backgroundMusicVolume: number;
   setBackgroundMusicVolume: (volume: number) => void;
+  
+  // Game Mode Journey state
+  journeySession: {
+    id: string;
+    phase: 'exploration' | 'resolution' | 'acceptance';
+    phaseConfirmed: boolean;
+    pendingTransition: 'resolution' | 'acceptance' | null;
+  } | null;
+  setJourneySession: (session: { id: string; phase: 'exploration' | 'resolution' | 'acceptance'; phaseConfirmed: boolean; pendingTransition: 'resolution' | 'acceptance' | null } | null) => void;
+  setJourneyPhase: (phase: 'exploration' | 'resolution' | 'acceptance') => void;
+  setJourneyPendingTransition: (transition: 'resolution' | 'acceptance' | null) => void;
+  confirmJourneyTransition: () => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -408,6 +420,31 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     set({ backgroundMusicVolume: volume });
   },
+  
+  // Game Mode Journey state
+  journeySession: null,
+  setJourneySession: (session) => set({ journeySession: session }),
+  setJourneyPhase: (phase) => set((state) => ({
+    journeySession: state.journeySession
+      ? { ...state.journeySession, phase, phaseConfirmed: false }
+      : null
+  })),
+  setJourneyPendingTransition: (transition) => set((state) => ({
+    journeySession: state.journeySession
+      ? { ...state.journeySession, pendingTransition: transition }
+      : null
+  })),
+  confirmJourneyTransition: () => set((state) => {
+    if (!state.journeySession?.pendingTransition) return state;
+    return {
+      journeySession: {
+        ...state.journeySession,
+        phase: state.journeySession.pendingTransition,
+        phaseConfirmed: true,
+        pendingTransition: null,
+      }
+    };
+  }),
 }));
 
 // ============ Background Music Async Helpers ============

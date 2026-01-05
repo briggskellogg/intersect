@@ -111,6 +111,24 @@ export interface UserContext {
 // Debate mode
 export type DebateMode = 'mild' | 'intense' | null;
 
+// Journey session phases for Game Mode
+export type JourneyPhase = 'exploration' | 'resolution' | 'acceptance';
+
+// Journey session from backend
+export interface JourneySession {
+  id: string;
+  profileId: string;
+  conversationId: string;
+  phase: JourneyPhase;
+  phaseConfirmed: boolean;
+  problemSummary: string | null;
+  resolutionSummary: string | null;
+  acceptanceSummary: string | null;
+  completed: boolean;
+  startedAt: string;
+  completedAt: string | null;
+}
+
 
 
 

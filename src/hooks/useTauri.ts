@@ -420,3 +420,75 @@ export async function deleteBackgroundTrack(id: string): Promise<void> {
 export async function getBackgroundTrackData(id: string): Promise<string | null> {
   return invoke<string | null>('get_background_track_data', { id });
 }
+
+// ============ Journey Session (Game Mode) ============
+
+export interface JourneySessionInfo {
+  id: string;
+  profileId: string;
+  conversationId: string;
+  phase: 'exploration' | 'resolution' | 'acceptance';
+  phaseConfirmed: boolean;
+  problemSummary: string | null;
+  resolutionSummary: string | null;
+  acceptanceSummary: string | null;
+  completed: boolean;
+  startedAt: string;
+  completedAt: string | null;
+}
+
+interface RawJourneySession {
+  id: string;
+  profile_id: string;
+  conversation_id: string;
+  phase: string;
+  phase_confirmed: boolean;
+  problem_summary: string | null;
+  resolution_summary: string | null;
+  acceptance_summary: string | null;
+  completed: boolean;
+  started_at: string;
+  completed_at: string | null;
+}
+
+function transformJourneySession(raw: RawJourneySession): JourneySessionInfo {
+  return {
+    id: raw.id,
+    profileId: raw.profile_id,
+    conversationId: raw.conversation_id,
+    phase: raw.phase as 'exploration' | 'resolution' | 'acceptance',
+    phaseConfirmed: raw.phase_confirmed,
+    problemSummary: raw.problem_summary,
+    resolutionSummary: raw.resolution_summary,
+    acceptanceSummary: raw.acceptance_summary,
+    completed: raw.completed,
+    startedAt: raw.started_at,
+    completedAt: raw.completed_at,
+  };
+}
+
+export async function createJourneySession(profileId: string, conversationId: string): Promise<JourneySessionInfo> {
+  const raw = await invoke<RawJourneySession>('create_journey_session', { profileId, conversationId });
+  return transformJourneySession(raw);
+}
+
+export async function getJourneySession(conversationId: string): Promise<JourneySessionInfo | null> {
+  const raw = await invoke<RawJourneySession | null>('get_journey_session', { conversationId });
+  return raw ? transformJourneySession(raw) : null;
+}
+
+export async function updateJourneyPhase(sessionId: string, newPhase: string, summary?: string): Promise<void> {
+  await invoke('update_journey_phase', { sessionId, newPhase, summary: summary ?? null });
+}
+
+export async function confirmJourneyPhase(sessionId: string): Promise<void> {
+  await invoke('confirm_journey_phase', { sessionId });
+}
+
+export async function completeJourneySession(sessionId: string, acceptanceSummary?: string): Promise<void> {
+  await invoke('complete_journey_session', { sessionId, acceptanceSummary: acceptanceSummary ?? null });
+}
+
+export async function getJourneySessionsCompleted(profileId: string): Promise<number> {
+  return invoke<number>('get_journey_sessions_completed', { profileId });
+}

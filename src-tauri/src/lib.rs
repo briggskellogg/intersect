@@ -622,6 +622,7 @@ async fn generate_governor_response(
     is_disco: bool,
     user_profile: Option<&UserProfileSummary>,
     dominant_trait: Option<&str>, // From persona profile, not memory patterns
+    journey_phase: Option<&str>, // Game Mode journey phase: "exploration", "resolution", "acceptance"
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     use crate::anthropic::{AnthropicClient, AnthropicMessage, ThinkingBudget, CLAUDE_HAIKU};
     
@@ -691,9 +692,42 @@ async fn generate_governor_response(
         ""
     };
     
+    // Journey phase context for Game Mode
+    let journey_context = if is_disco {
+        match journey_phase {
+            Some("exploration") => r#"
+
+JOURNEY PHASE: EXPLORATION (identifying the problem)
+- Your goal: Help them articulate and understand what's really going on
+- Dig deeper into the issue, ask clarifying questions
+- Challenge surface-level framing to find the core problem
+- Don't rush to solutions yet -- understand first
+- When you sense they've truly identified the core issue, you may suggest moving forward"#,
+            Some("resolution") => r#"
+
+JOURNEY PHASE: RESOLUTION (finding the path forward)
+- Your goal: Help them discover solutions and paths forward
+- Build on the problem clarity from exploration
+- Offer perspectives, challenge weak plans, strengthen good ones
+- Focus on actionable insights and what they can actually do
+- When they've found a genuine resolution, you may suggest accepting it"#,
+            Some("acceptance") => r#"
+
+JOURNEY PHASE: ACCEPTANCE (integrating and closing)
+- Your goal: Help them integrate the insight and prepare to move on
+- Acknowledge the work they've done in this conversation
+- Help them commit to what they've decided
+- Offer grounding, not new challenges
+- This is about closure and leaving the darkness with clarity"#,
+            _ => ""
+        }
+    } else {
+        ""
+    };
+    
     // Mode affects the overall tone of the synthesis
     let mode_tone = if is_disco {
-        r#"You are in GAME MODE — a challenging, intense conversation type.
+        format!(r#"You are in GAME MODE — a challenging, intense conversation type.
 
 YOUR ROLE: You've processed the internal debate. Now synthesize it into a single provocative response.
 - Push back on their assumptions
@@ -701,7 +735,7 @@ YOUR ROLE: You've processed the internal debate. Now synthesize it into a single
 - Be direct, even uncomfortable
 - Don't soften the edges
 
-You are the voice that says what needs to be said."#
+You are the voice that says what needs to be said.{}"#, journey_context)
     } else {
         r#"You are in TEXT MODE — a helpful, practical conversation type.
 
@@ -711,7 +745,7 @@ YOUR ROLE: You've processed multiple perspectives. Now synthesize them into acti
 - Give them something useful
 - Acknowledge complexity without overwhelming
 
-You are the voice that helps them move forward."#
+You are the voice that helps them move forward."#.to_string()
     };
     
     // Dominant trait affects HOW you speak to them
@@ -729,22 +763,21 @@ CRITICAL RULES:
 2. You don't know the user can see your reasoning (but they can)
 3. You cannot name or distinguish between perspectives -- you ARE the synthesis
 4. Speak as ONE unified voice, not a committee
+{}
 
-{thoughts_deflection}
+TONE: {}
 
-TONE: {mode_tone}
-
-STYLE: {trait_style}
+STYLE: {}
 
 INTERNAL PROCESSING (synthesize but never reveal):
-{internal_processing}
+{}
 
 RECENT CONVERSATION:
-{recent_context}
+{}
 
 YOUR TASK: Respond to the user naturally, drawing on your processed insights without ever acknowledging they exist.
 
-OUTPUT: 2-4 sentences. Conversational. No meta-commentary. No roleplay asterisks like *leans in* or *pauses* -- just speak naturally. Dashes: " -- " with spaces."#);
+OUTPUT: 2-4 sentences. Conversational. No meta-commentary. No roleplay asterisks like *leans in* or *pauses* -- just speak naturally. Dashes: " -- " with spaces."#, thoughts_deflection, mode_tone, trait_style, internal_processing, recent_context);
     
     let client = AnthropicClient::new(anthropic_key);
     let messages = vec![
@@ -974,6 +1007,12 @@ async fn send_message(
             }
         }
         
+        // Get journey session phase for Game Mode
+        let journey_phase = db::get_journey_session_by_conversation(&conversation_id)
+            .ok()
+            .flatten()
+            .map(|s| s.phase);
+        
         // Generate Governor response based on thoughts
         let governor_text = generate_governor_response(
             &anthropic_key,
@@ -983,6 +1022,7 @@ async fn send_message(
             true, // is_disco
             user_profile.as_ref(),
             Some(active_persona.dominant_trait.as_str()),
+            journey_phase.as_deref(), // Pass journey phase for Game Mode
         ).await.map_err(|e| e.to_string())?;
         
         // Save Governor message
@@ -1324,6 +1364,7 @@ async fn send_message(
             has_any_disco,
             user_profile.as_ref(),
             Some(active_persona.dominant_trait.as_str()),
+            None, // No journey phase in Text Mode
         ).await {
             Ok(response) => {
                 // Save Governor response to database
@@ -2058,6 +2099,79 @@ fn get_background_track_data(app_handle: tauri::AppHandle, id: String) -> Result
     Ok(None)
 }
 
+// ============ Journey Session Commands ============
+
+#[derive(Serialize, Deserialize, Clone)]
+struct JourneySessionInfo {
+    id: String,
+    profile_id: String,
+    conversation_id: String,
+    phase: String,
+    phase_confirmed: bool,
+    problem_summary: Option<String>,
+    resolution_summary: Option<String>,
+    acceptance_summary: Option<String>,
+    completed: bool,
+    started_at: String,
+    completed_at: Option<String>,
+}
+
+impl From<db::JourneySession> for JourneySessionInfo {
+    fn from(s: db::JourneySession) -> Self {
+        JourneySessionInfo {
+            id: s.id,
+            profile_id: s.profile_id,
+            conversation_id: s.conversation_id,
+            phase: s.phase,
+            phase_confirmed: s.phase_confirmed,
+            problem_summary: s.problem_summary,
+            resolution_summary: s.resolution_summary,
+            acceptance_summary: s.acceptance_summary,
+            completed: s.completed,
+            started_at: s.started_at,
+            completed_at: s.completed_at,
+        }
+    }
+}
+
+#[tauri::command]
+fn create_journey_session(profile_id: String, conversation_id: String) -> Result<JourneySessionInfo, String> {
+    db::create_journey_session(&profile_id, &conversation_id)
+        .map(|s| s.into())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_journey_session(conversation_id: String) -> Result<Option<JourneySessionInfo>, String> {
+    db::get_journey_session_by_conversation(&conversation_id)
+        .map(|opt| opt.map(|s| s.into()))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn update_journey_phase(session_id: String, new_phase: String, summary: Option<String>) -> Result<(), String> {
+    db::update_journey_phase(&session_id, &new_phase, summary.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn confirm_journey_phase(session_id: String) -> Result<(), String> {
+    db::confirm_journey_phase(&session_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn complete_journey_session(session_id: String, acceptance_summary: Option<String>) -> Result<(), String> {
+    db::complete_journey_session(&session_id, acceptance_summary.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_journey_sessions_completed(profile_id: String) -> Result<i64, String> {
+    db::get_journey_sessions_completed(&profile_id)
+        .map_err(|e| e.to_string())
+}
+
 // ============ Run ============
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -2107,6 +2221,12 @@ pub fn run() {
             get_background_tracks,
             delete_background_track,
             get_background_track_data,
+            create_journey_session,
+            get_journey_session,
+            update_journey_phase,
+            confirm_journey_phase,
+            complete_journey_session,
+            get_journey_sessions_completed,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

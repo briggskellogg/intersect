@@ -1,14 +1,23 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { v4 as uuidv4 } from 'uuid';
 import { useAppStore } from '../store';
-import { sendMessage as sendMessageToBackend, createConversation, getConversationOpener, getActivePersonaProfile } from '../hooks/useTauri';
+import { 
+  sendMessage as sendMessageToBackend, 
+  createConversation, 
+  getConversationOpener, 
+  getActivePersonaProfile,
+  createJourneySession,
+  confirmJourneyPhase as confirmJourneyPhaseBackend,
+  completeJourneySession,
+} from '../hooks/useTauri';
 import { useBackgroundMusic } from '../hooks/useBackgroundMusic';
 import { useScribeTranscription } from '../hooks/useScribeTranscription';
 import { useElevenLabsTTS } from '../hooks/useElevenLabsTTS';
 import { useSubmitDetection } from '../hooks/useSubmitDetection';
 import { WaveformVisualizer } from './WaveformVisualizer';
 import { ImmersiveSettings } from './ImmersiveSettings';
+import { ParticleField } from './ParticleField';
 import { DISCO_AGENTS, USER_PROFILES, GOVERNOR } from '../constants/agents'; // Voice mode always uses disco agents
 import { VoiceChanger, ClipboardCopy, ClipboardCheck } from './icons';
 import { AgentType } from '../types';
@@ -16,8 +25,8 @@ import { AgentType } from '../types';
 // Import thinking audio
 import thinkingAudioSrc from '../assets/governor-thinking.mp3';
 
-// Import transparent Governor for immersive mode
-import governorTransparent from '../assets/governor-transparent-immersive.png';
+// Import Governor for Game Mode - round aesthetic icon
+import governorGameMode from '../assets/governor-game-mode.png';
 
 interface ThoughtState {
   id: string;
@@ -80,6 +89,37 @@ function ThoughtText({ content, isActive, isComplete }: { content: string; isAct
   );
 }
 
+// Visual atmosphere based on journey phase - C: Environmental change
+const JOURNEY_ATMOSPHERE = {
+  exploration: {
+    // Darkest, most fog, heaviest vignette - the "dark territory"
+    bgGradient: 'linear-gradient(135deg, #050508 0%, #0a0812 40%, #080510 70%, #050508 100%)',
+    fogOpacity: 1.0,
+    vignetteIntensity: 0.92,
+    particleSpeed: 0.05,
+    particleOpacity: 0.6,
+    glowOpacity: 0.08,
+  },
+  resolution: {
+    // Fog begins to clear, vignette softens, particles slow
+    bgGradient: 'linear-gradient(135deg, #080810 0%, #0d0d18 40%, #0a0a14 70%, #080810 100%)',
+    fogOpacity: 0.6,
+    vignetteIntensity: 0.7,
+    particleSpeed: 0.035,
+    particleOpacity: 0.45,
+    glowOpacity: 0.14,
+  },
+  acceptance: {
+    // Clearest - fog nearly gone, vignette soft, particles settled, sense of dawn
+    bgGradient: 'linear-gradient(135deg, #0a0a12 0%, #10101a 40%, #0d0d16 70%, #0a0a12 100%)',
+    fogOpacity: 0.25,
+    vignetteIntensity: 0.45,
+    particleSpeed: 0.02,
+    particleOpacity: 0.3,
+    glowOpacity: 0.22,
+  },
+};
+
 export function ImmersiveMode() {
   const {
     isImmersiveMode,
@@ -94,7 +134,15 @@ export function ImmersiveMode() {
     setLastImmersiveConversationId,
     backgroundMusic,
     backgroundMusicVolume,
+    journeySession,
+    setJourneySession,
+    setJourneyPendingTransition,
+    confirmJourneyTransition,
   } = useAppStore();
+  
+  // Current journey phase for visual effects
+  const currentPhase = journeySession?.phase || 'exploration';
+  const atmosphere = useMemo(() => JOURNEY_ATMOSPHERE[currentPhase], [currentPhase]);
   
   // Get user avatar based on dominant trait
   const userAvatar = activePersonaProfile?.dominantTrait 
@@ -668,6 +716,22 @@ export function ImmersiveMode() {
           setGameModeConversationId(newConversation.id);
           setLastImmersiveConversationId(newConversation.id);
           
+          // Initialize journey session for this Game Mode conversation
+          if (activePersonaProfile?.id) {
+            try {
+              const session = await createJourneySession(activePersonaProfile.id, newConversation.id);
+              setJourneySession({
+                id: session.id,
+                phase: session.phase,
+                phaseConfirmed: session.phaseConfirmed,
+                pendingTransition: null,
+              });
+            } catch (journeyErr) {
+              console.error('Failed to create journey session:', journeyErr);
+              // Non-fatal - continue without journey tracking
+            }
+          }
+          
           // Get the Governor's opener (atmospheric greeting for voice mode)
           const openerResult = await getConversationOpener(true);
           
@@ -748,6 +812,8 @@ export function ImmersiveMode() {
       scribe.stop();
       tts.clearQueue();
       stopThinkingAudio();
+      // Clear journey session on exit
+      setJourneySession(null);
       setError(null);
       hasInitializedRef.current = false; // Reset so next session initializes properly
     };
@@ -895,42 +961,104 @@ export function ImmersiveMode() {
       <motion.div
         ref={containerRef}
         initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
+        animate={{ opacity: 1, background: atmosphere.bgGradient }}
         exit={{ opacity: 0 }}
+        transition={{ duration: 0.8, ease: [0.25, 0.1, 0.25, 1], background: { duration: 3, ease: 'easeInOut' } }}
         className="fixed inset-0 z-50 overflow-hidden rounded-xl"
         style={{
-          background: 'linear-gradient(135deg, #0f0a1a 0%, #1a0a2e 50%, #0a1628 100%)', // Voice mode disco style
-          filter: 'saturate(1.2)',
+          background: atmosphere.bgGradient, // Journey-phase-aware background
         }}
       >
-        {/* Ambient background glow from center */}
-        <div className="absolute inset-0 opacity-40">
+        {/* Slow-moving fog layers - Disco Elysium atmosphere - fades based on journey phase */}
+        <motion.div 
+          className="absolute inset-0 overflow-hidden pointer-events-none"
+          animate={{ opacity: atmosphere.fogOpacity }}
+          transition={{ duration: 4, ease: 'easeInOut' }}
+        >
+          {/* Fog layer 1 - slow drift left to right */}
+          <motion.div
+            className="absolute -inset-1/2 w-[200%] h-[200%]"
+            style={{
+              background: 'radial-gradient(ellipse 80% 50% at 30% 50%, rgba(59, 130, 246, 0.08) 0%, transparent 50%)',
+            }}
+            animate={{ x: ['0%', '25%', '0%'] }}
+            transition={{ repeat: Infinity, duration: 40, ease: 'easeInOut' }}
+          />
+          {/* Fog layer 2 - slow drift right to left */}
+          <motion.div
+            className="absolute -inset-1/2 w-[200%] h-[200%]"
+            style={{
+              background: 'radial-gradient(ellipse 60% 80% at 70% 60%, rgba(147, 51, 234, 0.06) 0%, transparent 45%)',
+            }}
+            animate={{ x: ['0%', '-20%', '0%'] }}
+            transition={{ repeat: Infinity, duration: 35, ease: 'easeInOut', delay: 5 }}
+          />
+          {/* Fog layer 3 - vertical drift */}
+          <motion.div
+            className="absolute -inset-1/2 w-[200%] h-[200%]"
+            style={{
+              background: 'radial-gradient(ellipse 100% 40% at 50% 80%, rgba(30, 58, 95, 0.1) 0%, transparent 50%)',
+            }}
+            animate={{ y: ['0%', '-10%', '0%'] }}
+            transition={{ repeat: Infinity, duration: 30, ease: 'easeInOut', delay: 10 }}
+          />
+        </motion.div>
+
+        {/* Ambient background glow from center - intensity increases as journey progresses */}
+        <motion.div 
+          className="absolute inset-0 pointer-events-none"
+          animate={{ opacity: 0.5 + atmosphere.glowOpacity }}
+          transition={{ duration: 3, ease: 'easeInOut' }}
+        >
           <motion.div 
             className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full blur-3xl"
             style={{ backgroundColor: GAME_MODE_COLORS.secondary }}
             animate={{ 
-              scale: [1, 1.2, 1], 
-              opacity: [0.3, 0.5, 0.3] 
+              scale: [1, 1.3, 1], 
+              opacity: [0.2, 0.4, 0.2] 
             }}
-            transition={{ repeat: Infinity, duration: 4 }}
+            transition={{ repeat: Infinity, duration: 8, ease: 'easeInOut' }}
           />
           <motion.div 
             className="absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full blur-3xl"
             style={{ backgroundColor: GAME_MODE_COLORS.accent }}
             animate={{ 
-              scale: [1.2, 1, 1.2], 
-              opacity: [0.5, 0.3, 0.5] 
+              scale: [1.3, 1, 1.3], 
+              opacity: [0.4, 0.2, 0.4] 
             }}
-            transition={{ repeat: Infinity, duration: 4 }}
+            transition={{ repeat: Infinity, duration: 7, ease: 'easeInOut' }}
           />
-          {/* Center glow - always shown in voice mode */}
+          {/* Center glow - intensity grows as journey progresses */}
           <motion.div 
-            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full blur-3xl"
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] rounded-full blur-3xl"
             style={{ backgroundColor: GAME_MODE_COLORS.glow }}
-            animate={{ scale: [0.8, 1, 0.8], opacity: [0.1, 0.2, 0.1] }}
-            transition={{ repeat: Infinity, duration: 3 }}
+            animate={{ 
+              scale: [0.8, 1.1, 0.8], 
+              opacity: [atmosphere.glowOpacity, atmosphere.glowOpacity + 0.1, atmosphere.glowOpacity] 
+            }}
+            transition={{ repeat: Infinity, duration: 6, ease: 'easeInOut' }}
           />
-        </div>
+        </motion.div>
+
+        {/* Deep vignette - softens as journey progresses */}
+        <motion.div 
+          className="absolute inset-0 pointer-events-none"
+          animate={{ opacity: atmosphere.vignetteIntensity }}
+          transition={{ duration: 4, ease: 'easeInOut' }}
+          style={{
+            background: 'radial-gradient(ellipse 70% 60% at 50% 45%, transparent 0%, transparent 30%, rgba(5, 5, 8, 0.4) 60%, rgba(5, 5, 8, 1) 100%)',
+          }}
+        />
+
+        {/* Floating dust particles - settle as journey progresses */}
+        <ParticleField 
+          particleCount={45} 
+          speed={atmosphere.particleSpeed}
+          color={`rgba(255, 255, 255, ${atmosphere.particleOpacity})`}
+        />
+
+        {/* Painterly noise texture overlay */}
+        <div className="immersive-noise" />
 
 
         {/* Draggable region for window movement */}
@@ -944,31 +1072,31 @@ export function ImmersiveMode() {
           <div className="relative group/voice">
             <button
               onClick={() => setIsSettingsOpen(true)}
-              className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-slate-400 hover:bg-slate-800/60 transition-all"
+              className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-[#0f0f14]/80 transition-all duration-300"
               title="Voice Settings (⌘V)"
             >
-              <VoiceChanger size={14} className="shrink-0 opacity-70 group-hover/voice:opacity-100 transition-opacity" />
-              <kbd className="p-1 bg-slate-800/60 rounded text-[10px] font-mono text-slate-400 border border-slate-700/50 leading-none">⌘V</kbd>
+              <VoiceChanger size={14} className="shrink-0 opacity-60 group-hover/voice:opacity-100 transition-opacity duration-300" />
+              <kbd className="p-1 bg-[#0c0c10]/80 rounded text-[10px] font-mono text-slate-500 border border-slate-700/40 leading-none">⌘V</kbd>
             </button>
             {/* Hover box */}
-            <div className="absolute top-0 left-0 right-0 bottom-0 rounded-lg bg-slate-800/60 border border-slate-600/50 opacity-0 group-hover/voice:opacity-100 transition-all -z-10" />
+            <div className="absolute top-0 left-0 right-0 bottom-0 rounded-lg bg-[#0f0f14]/70 border border-slate-700/40 opacity-0 group-hover/voice:opacity-100 transition-all duration-300 -z-10" />
           </div>
           <div className="relative group/exit">
             <button
               onClick={handleExitRequest}
-              className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-slate-400 hover:bg-slate-800/60 transition-all"
+              className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-[#0f0f14]/80 transition-all duration-300"
               title="Exit (⌘ESC)"
             >
-              <kbd className="p-1 bg-slate-800/60 rounded text-[10px] font-mono text-slate-400 border border-slate-700/50 leading-none">⌘ESC</kbd>
+              <kbd className="p-1 bg-[#0c0c10]/80 rounded text-[10px] font-mono text-slate-500 border border-slate-700/40 leading-none">⌘ESC</kbd>
             </button>
             {/* Hover box */}
-            <div className="absolute top-0 left-0 right-0 bottom-0 rounded-lg bg-slate-800/60 border border-slate-600/50 opacity-0 group-hover/exit:opacity-100 transition-all -z-10" />
+            <div className="absolute top-0 left-0 right-0 bottom-0 rounded-lg bg-[#0f0f14]/70 border border-slate-700/40 opacity-0 group-hover/exit:opacity-100 transition-all duration-300 -z-10" />
           </div>
         </div>
 
-        {/* Agent avatars - top left (always disco agents in voice mode) */}
+        {/* Agent avatars + Journey Phase indicator - top left */}
         <div className="absolute top-4 left-4 z-30 flex items-center gap-3">
-          <div className="relative flex items-center bg-slate-800/60 rounded-full px-2 py-1.5 border border-blue-500/30">
+          <div className="relative flex items-center bg-[#0a0a0f]/80 rounded-full px-2 py-1.5 border border-slate-800/50">
             <div className="flex -space-x-2">
               {(['psyche', 'logic', 'instinct'] as const).map((agentId) => {
                 const agentConfig = DISCO_AGENTS[agentId]; // Voice mode always uses disco agents
@@ -986,14 +1114,46 @@ export function ImmersiveMode() {
                 );
               })}
             </div>
-            {/* Single green active dot */}
+            {/* Single green active dot - slow pulse */}
             <motion.div
               className="absolute bottom-0 right-0 w-2 h-2 rounded-full border border-slate-800 z-10"
               style={{ backgroundColor: '#22C55E' }}
-              animate={{ opacity: [0.7, 1, 0.7] }}
-              transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+              animate={{ opacity: [0.6, 1, 0.6] }}
+              transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut' }}
             />
           </div>
+          
+          {/* Journey Phase indicator */}
+          {journeySession && (
+            <motion.div
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="flex items-center gap-2 px-3 py-1.5 bg-[#0a0a0f]/80 rounded-full border border-slate-800/50"
+            >
+              {/* Phase dots */}
+              <div className="flex gap-1">
+                {(['exploration', 'resolution', 'acceptance'] as const).map((phase, idx) => (
+                  <motion.div
+                    key={phase}
+                    className="w-1.5 h-1.5 rounded-full"
+                    style={{
+                      backgroundColor: currentPhase === phase 
+                        ? (phase === 'exploration' ? '#3B82F6' : phase === 'resolution' ? '#A78BCA' : '#22C55E')
+                        : idx < ['exploration', 'resolution', 'acceptance'].indexOf(currentPhase)
+                          ? '#4B5563'
+                          : '#1F2937',
+                    }}
+                    animate={currentPhase === phase ? { scale: [1, 1.3, 1] } : {}}
+                    transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
+                  />
+                ))}
+              </div>
+              {/* Phase label */}
+              <span className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">
+                {currentPhase}
+              </span>
+            </motion.div>
+          )}
         </div>
 
         {/* Friendly error overlay */}
@@ -1061,11 +1221,11 @@ export function ImmersiveMode() {
           ref={thoughtsPanelRef}
           initial={{ x: -300, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
-          transition={{ delay: 0.2 }}
+          transition={{ delay: 0.3, duration: 0.8, ease: [0.25, 0.1, 0.25, 1] }}
           className="absolute left-4 top-16 bottom-28 w-72 flex flex-col z-20"
         >
           {/* Panel Header */}
-          <div className="flex items-center justify-between px-3 py-2 rounded-t-xl bg-slate-900/60 backdrop-blur-sm border border-slate-700/30 border-b-0">
+          <div className="flex items-center justify-between px-3 py-2 rounded-t-xl bg-[#0a0a0f]/80 backdrop-blur-md border border-slate-800/40 border-b-0">
             <span className="text-[10px] font-sans text-slate-500 tracking-wider flex items-center gap-1.5">
               {tts.isSpeaking && (
                 <>
@@ -1077,7 +1237,7 @@ export function ImmersiveMode() {
           </div>
           
           {/* Dialog Stream - shows history + current */}
-          <div ref={dialogScrollRef} className="flex-1 overflow-y-auto rounded-b-xl bg-slate-900/40 backdrop-blur-sm border border-slate-700/30 border-t-0">
+          <div ref={dialogScrollRef} className="flex-1 overflow-y-auto rounded-b-xl bg-[#08080c]/70 backdrop-blur-md border border-slate-800/40 border-t-0">
             {dialogHistory.length === 0 && currentThoughts.length === 0 && !isThinking && !currentGovernorText && (
               <div className="flex items-center justify-center h-full text-slate-600 text-xs">
                 Conversation will appear here...
@@ -1152,7 +1312,7 @@ export function ImmersiveMode() {
                   >
                     <div className="flex items-start gap-2">
                       <img 
-                        src={governorTransparent} 
+                        src={governorGameMode} 
                         alt="Governor" 
                         className="w-4 h-4 rounded-full flex-shrink-0 mt-0.5 opacity-70"
                       />
@@ -1228,7 +1388,7 @@ export function ImmersiveMode() {
                 >
                   <div className="flex items-start gap-2">
                     <img 
-                      src={governorTransparent} 
+                      src={governorGameMode} 
                       alt="Governor" 
                       className="w-5 h-5 rounded-full flex-shrink-0 mt-0.5"
                       style={{ 
@@ -1273,15 +1433,15 @@ export function ImmersiveMode() {
                 exit={{ opacity: 0, y: -10 }}
                 className="flex flex-col items-end"
               >
-                {/* Box with profile picture and text */}
+                {/* Box with profile picture and text - slow dreamy pulse */}
                 <motion.div 
-                  className="w-full rounded-xl bg-slate-900/70 backdrop-blur-md border border-slate-700/30 shadow-2xl overflow-hidden"
+                  className="w-full rounded-xl bg-[#0a0a0f]/80 backdrop-blur-md border border-slate-800/40 shadow-2xl overflow-hidden"
                   animate={{ 
-                    borderColor: ['rgba(100, 116, 139, 0.3)', 'rgba(59, 130, 246, 0.4)', 'rgba(100, 116, 139, 0.3)']
+                    borderColor: ['rgba(100, 116, 139, 0.25)', 'rgba(59, 130, 246, 0.35)', 'rgba(100, 116, 139, 0.25)']
                   }}
                   transition={{ 
                     repeat: Infinity, 
-                    duration: 2,
+                    duration: 4,
                     ease: 'easeInOut'
                   }}
                 >
@@ -1301,8 +1461,8 @@ export function ImmersiveMode() {
                       ) : (
                         <motion.span 
                           className="text-sm text-slate-500 italic"
-                          animate={{ opacity: [0.4, 0.7, 0.4] }}
-                          transition={{ repeat: Infinity, duration: 1.5 }}
+                          animate={{ opacity: [0.35, 0.65, 0.35] }}
+                          transition={{ repeat: Infinity, duration: 2.5, ease: 'easeInOut' }}
                         >
                           listening...
                         </motion.span>
@@ -1321,7 +1481,7 @@ export function ImmersiveMode() {
         {/* Center content - Governor (completely transparent, no border) */}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
           <div ref={governorRef} className="relative pointer-events-auto">
-            {/* Thinking rings - pulse when processing */}
+            {/* Thinking rings - pulse when processing - slow dreamy pace */}
             {isThinking && (
               <>
                 {[0, 1, 2].map((i) => (
@@ -1334,13 +1494,13 @@ export function ImmersiveMode() {
                     }}
                     initial={{ opacity: 0, scale: 0.8 }}
                     animate={{ 
-                      opacity: [0.3, 0.6, 0.3],
-                      scale: [1, 1.1, 1],
+                      opacity: [0.2, 0.5, 0.2],
+                      scale: [1, 1.08, 1],
                     }}
                     transition={{ 
                       repeat: Infinity, 
-                      duration: 1.5, 
-                      delay: i * 0.3,
+                      duration: 3.5, 
+                      delay: i * 0.6,
                       ease: 'easeInOut',
                     }}
                   />
@@ -1379,12 +1539,12 @@ export function ImmersiveMode() {
                         exit={{ opacity: 0, scale: 0 }}
                         transition={{
                           rotate: {
-                            duration: 12,
+                            duration: 24, // Slower, dreamier orbit
                             repeat: Infinity,
                             ease: 'linear',
                           },
-                          opacity: { duration: 0.3 },
-                          scale: { duration: 0.3 },
+                          opacity: { duration: 0.6 },
+                          scale: { duration: 0.6 },
                         }}
                       >
                         <motion.div
@@ -1395,7 +1555,7 @@ export function ImmersiveMode() {
                             rotate: [-startAngle, -startAngle - 360], // Counter-rotate to keep upright
                           }}
                           transition={{
-                            duration: 12,
+                            duration: 24, // Match outer rotation
                             repeat: Infinity,
                             ease: 'linear',
                           }}
@@ -1416,7 +1576,7 @@ export function ImmersiveMode() {
                 </div>
               )}
               
-              {/* Governor speaking ring - amber glow */}
+              {/* Governor speaking ring - amber glow - slow dreamy pulse */}
               {isGovernorSpeaking && (
                 <motion.div
                   className="absolute -inset-6 rounded-full"
@@ -1425,11 +1585,11 @@ export function ImmersiveMode() {
                   }}
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{
-                    scale: [1, 1.08, 1],
-                    opacity: [0.5, 0.8, 0.5],
+                    scale: [1, 1.06, 1],
+                    opacity: [0.4, 0.7, 0.4],
                   }}
                   transition={{
-                    duration: 2,
+                    duration: 4,
                     repeat: Infinity,
                     ease: 'easeInOut',
                   }}
@@ -1443,25 +1603,25 @@ export function ImmersiveMode() {
                 initial={{ opacity: 0.3, scale: 1 }}
                 style={{
                   background: isListening
-                    ? 'radial-gradient(circle, transparent 45%, rgba(59, 130, 246, 0.3) 50%, transparent 55%)'
+                    ? 'radial-gradient(circle, transparent 45%, rgba(59, 130, 246, 0.25) 50%, transparent 55%)'
                     : isThinking
-                    ? 'radial-gradient(circle, transparent 45%, rgba(234, 179, 8, 0.4) 50%, transparent 55%)'
-                    : 'radial-gradient(circle, transparent 45%, rgba(100, 116, 139, 0.15) 50%, transparent 55%)',
+                    ? 'radial-gradient(circle, transparent 45%, rgba(234, 179, 8, 0.35) 50%, transparent 55%)'
+                    : 'radial-gradient(circle, transparent 45%, rgba(100, 116, 139, 0.12) 50%, transparent 55%)',
                 }}
                 animate={{
-                  scale: [1, 1.04, 1],
+                  scale: [1, 1.03, 1],
                   opacity: isListening || isThinking
-                    ? [0.6, 0.9, 0.6]
-                    : [0.3, 0.5, 0.3],
+                    ? [0.5, 0.8, 0.5]
+                    : [0.25, 0.45, 0.25],
                 }}
                 transition={{
-                  duration: 3,
+                  duration: 5,
                   repeat: Infinity,
                   ease: 'easeInOut',
                 }}
               />
               
-              {/* Secondary outer ring for listening/thinking */}
+              {/* Secondary outer ring for listening/thinking - slow dreamy */}
               {(isListening || isThinking) && (
                 <motion.div
                   key={isListening ? 'outer-listening' : 'outer-thinking'}
@@ -1469,36 +1629,36 @@ export function ImmersiveMode() {
                   initial={{ opacity: 0, scale: 1 }}
                   style={{
                     background: isListening
-                      ? 'radial-gradient(circle, transparent 60%, rgba(59, 130, 246, 0.15) 70%, transparent 80%)'
-                      : 'radial-gradient(circle, transparent 60%, rgba(234, 179, 8, 0.2) 70%, transparent 80%)',
+                      ? 'radial-gradient(circle, transparent 60%, rgba(59, 130, 246, 0.12) 70%, transparent 80%)'
+                      : 'radial-gradient(circle, transparent 60%, rgba(234, 179, 8, 0.15) 70%, transparent 80%)',
                   }}
                   animate={{
-                    scale: [1, 1.1, 1],
-                    opacity: [0.4, 0.7, 0.4],
+                    scale: [1, 1.08, 1],
+                    opacity: [0.3, 0.6, 0.3],
                     rotate: isThinking ? [0, 360] : 0,
                   }}
                   transition={{
-                    duration: isThinking ? 4 : 3,
+                    duration: isThinking ? 8 : 6,
                     repeat: Infinity,
                     ease: 'easeInOut',
                   }}
                 />
               )}
               
-              {/* Governor image */}
+              {/* Governor image - slow breathing animation */}
               <motion.img 
-                src={governorTransparent} 
+                src={governorGameMode} 
                 alt="Governor"
                 className="w-full h-full object-contain relative z-10"
                 animate={{
                   scale: isGovernorSpeaking 
-                    ? [1, 1.02, 1] 
+                    ? [1, 1.015, 1] 
                     : isThinking 
-                    ? [1, 0.99, 1]
+                    ? [1, 0.995, 1]
                     : 1,
                 }}
                 transition={{
-                  duration: 2,
+                  duration: 4.5,
                   repeat: Infinity,
                   ease: 'easeInOut',
                 }}
@@ -1605,6 +1765,107 @@ export function ImmersiveMode() {
                   >
                     Exit
                     <kbd className="px-1 py-0.5 rounded bg-charcoal/50 text-[8px] text-red-400/50 border border-red-500/20">↵ ENT</kbd>
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        
+        {/* Phase Transition Confirmation Modal */}
+        <AnimatePresence>
+          {journeySession?.pendingTransition && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[180] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+              onClick={() => setJourneyPendingTransition(null)}
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0, y: 10 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.95, opacity: 0, y: 10 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                className="bg-[#0a0a12]/95 border border-slate-700/30 rounded-xl p-6 w-80 mx-4 shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Phase transition icon */}
+                <div className="flex items-center justify-center gap-3 mb-4">
+                  <div 
+                    className="w-2.5 h-2.5 rounded-full"
+                    style={{ 
+                      backgroundColor: currentPhase === 'exploration' ? '#3B82F6' : '#A78BCA',
+                    }}
+                  />
+                  <motion.span 
+                    className="text-slate-500"
+                    animate={{ x: [0, 4, 0] }}
+                    transition={{ repeat: Infinity, duration: 1.5 }}
+                  >
+                    →
+                  </motion.span>
+                  <div 
+                    className="w-2.5 h-2.5 rounded-full"
+                    style={{ 
+                      backgroundColor: journeySession.pendingTransition === 'resolution' ? '#A78BCA' : '#22C55E',
+                    }}
+                  />
+                </div>
+                
+                {/* Header */}
+                <h3 className="text-slate-200 font-medium text-sm text-center mb-2">
+                  {journeySession.pendingTransition === 'resolution' 
+                    ? 'Ready to explore solutions?' 
+                    : 'Ready to accept and move forward?'}
+                </h3>
+                
+                <p className="text-slate-500 text-xs text-center mb-5 leading-relaxed">
+                  {journeySession.pendingTransition === 'resolution'
+                    ? 'You\'ve identified the core issue. Let\'s find a path forward.'
+                    : 'You\'ve found your resolution. Time to integrate and close this chapter.'}
+                </p>
+                
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setJourneyPendingTransition(null)}
+                    className="flex-1 px-3 py-2 rounded-lg border border-slate-700/30 text-slate-500 hover:text-slate-300 hover:border-slate-600/40 transition-all text-xs"
+                  >
+                    Not yet
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (journeySession.pendingTransition === 'acceptance') {
+                        // Complete the journey
+                        try {
+                          await completeJourneySession(journeySession.id);
+                        } catch (err) {
+                          console.error('Failed to complete journey:', err);
+                        }
+                      } else {
+                        // Confirm phase transition
+                        try {
+                          await confirmJourneyPhaseBackend(journeySession.id);
+                        } catch (err) {
+                          console.error('Failed to confirm phase:', err);
+                        }
+                      }
+                      confirmJourneyTransition();
+                    }}
+                    className="flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-all"
+                    style={{
+                      backgroundColor: journeySession.pendingTransition === 'acceptance' 
+                        ? 'rgba(34, 197, 94, 0.2)' 
+                        : 'rgba(167, 139, 202, 0.2)',
+                      border: journeySession.pendingTransition === 'acceptance'
+                        ? '1px solid rgba(34, 197, 94, 0.4)'
+                        : '1px solid rgba(167, 139, 202, 0.4)',
+                      color: journeySession.pendingTransition === 'acceptance'
+                        ? '#4ADE80'
+                        : '#C4B5FD',
+                    }}
+                  >
+                    {journeySession.pendingTransition === 'acceptance' ? 'Complete Journey' : 'Continue'}
                   </button>
                 </div>
               </motion.div>
