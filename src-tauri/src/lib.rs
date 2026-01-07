@@ -702,7 +702,8 @@ JOURNEY PHASE: EXPLORATION (identifying the problem)
 - Dig deeper into the issue, ask clarifying questions
 - Challenge surface-level framing to find the core problem
 - Don't rush to solutions yet -- understand first
-- When you sense they've truly identified the core issue, you may suggest moving forward"#,
+- When you sense they've truly identified the core issue (they've named it, owned it, understood why it matters), end your message with exactly: [PHASE:RESOLUTION]
+- Only suggest moving on when there's genuine clarity, not just surface acknowledgment"#,
             Some("resolution") => r#"
 
 JOURNEY PHASE: RESOLUTION (finding the path forward)
@@ -710,7 +711,8 @@ JOURNEY PHASE: RESOLUTION (finding the path forward)
 - Build on the problem clarity from exploration
 - Offer perspectives, challenge weak plans, strengthen good ones
 - Focus on actionable insights and what they can actually do
-- When they've found a genuine resolution, you may suggest accepting it"#,
+- When they've found a genuine resolution (a real commitment, not just "I guess I should..."), end your message with exactly: [PHASE:ACCEPTANCE]
+- Only suggest acceptance when they have real conviction, not tentative agreement"#,
             Some("acceptance") => r#"
 
 JOURNEY PHASE: ACCEPTANCE (integrating and closing)
@@ -718,6 +720,7 @@ JOURNEY PHASE: ACCEPTANCE (integrating and closing)
 - Acknowledge the work they've done in this conversation
 - Help them commit to what they've decided
 - Offer grounding, not new challenges
+- When they've truly accepted and are ready to move forward, end your message with exactly: [JOURNEY:COMPLETE]
 - This is about closure and leaving the darkness with clarity"#,
             _ => ""
         }

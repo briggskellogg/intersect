@@ -430,4 +430,3 @@ textarea:focus-visible {
   pointer-events: none;
   background: radial-gradient(ellipse 65% 55% at 50% 45%, transparent 0%, transparent 25%, rgba(5, 5, 8, 0.5) 55%, rgba(5, 5, 8, 0.92) 100%);
 }
-

@@ -8,7 +8,7 @@ import {
   getConversationOpener, 
   getActivePersonaProfile,
   createJourneySession,
-  confirmJourneyPhase as confirmJourneyPhaseBackend,
+  updateJourneyPhase,
   completeJourneySession,
 } from '../hooks/useTauri';
 import { useBackgroundMusic } from '../hooks/useBackgroundMusic';
@@ -43,6 +43,37 @@ const GAME_MODE_COLORS = {
   accent: '#2563EB',
   glow: '#3B82F6',
 };
+
+// Format transcription for better readability
+function formatTranscription(text: string): string {
+  if (!text) return '';
+  
+  let formatted = text.trim();
+  
+  // Capitalize first letter
+  if (formatted.length > 0) {
+    formatted = formatted.charAt(0).toUpperCase() + formatted.slice(1);
+  }
+  
+  // Capitalize after sentence-ending punctuation
+  formatted = formatted.replace(/([.!?])\s+([a-z])/g, (_, punct, letter) => 
+    `${punct} ${letter.toUpperCase()}`
+  );
+  
+  // Capitalize "I" when standalone
+  formatted = formatted.replace(/\bi\b/g, 'I');
+  
+  // Capitalize common proper nouns that might be spoken
+  const properNouns = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+                       'january', 'february', 'march', 'april', 'may', 'june', 'july', 
+                       'august', 'september', 'october', 'november', 'december'];
+  properNouns.forEach(noun => {
+    const regex = new RegExp(`\\b${noun}\\b`, 'gi');
+    formatted = formatted.replace(regex, noun.charAt(0).toUpperCase() + noun.slice(1));
+  });
+  
+  return formatted;
+}
 
 // Typewriter text component for thoughts
 function ThoughtText({ content, isActive, isComplete }: { content: string; isActive: boolean; isComplete: boolean }) {
@@ -298,11 +329,12 @@ export function ImmersiveMode() {
     setCurrentTranscript('');
     scribe.clearTranscript();
     
-    // Add user message to dialog history (cleaned, no "submit")
+    // Add user message to dialog history (cleaned, no "submit", formatted)
+    const formattedUserText = formatTranscription(cleanedText);
     const userEntry: DialogEntry = {
       id: uuidv4(),
       type: 'user',
-      content: cleanedText,
+      content: formattedUserText,
     };
     setDialogHistory(prev => [...prev, userEntry]);
 
@@ -462,6 +494,22 @@ export function ImmersiveMode() {
 
       const governorResponse = result.governor_response;
       if (governorResponse) {
+        // Detect phase transition markers in Governor's response
+        let displayResponse = governorResponse;
+        let phaseTransition: 'resolution' | 'acceptance' | null = null;
+        let journeyComplete = false;
+        
+        if (governorResponse.includes('[PHASE:RESOLUTION]')) {
+          displayResponse = governorResponse.replace(/\s*\[PHASE:RESOLUTION\]\s*/g, '').trim();
+          phaseTransition = 'resolution';
+        } else if (governorResponse.includes('[PHASE:ACCEPTANCE]')) {
+          displayResponse = governorResponse.replace(/\s*\[PHASE:ACCEPTANCE\]\s*/g, '').trim();
+          phaseTransition = 'acceptance';
+        } else if (governorResponse.includes('[JOURNEY:COMPLETE]')) {
+          displayResponse = governorResponse.replace(/\s*\[JOURNEY:COMPLETE\]\s*/g, '').trim();
+          journeyComplete = true;
+        }
+        
         // Only start thinking audio if not already started (by skip)
         if (!skipToGovernorRef.current) {
           setIsThinking(true);
@@ -481,7 +529,7 @@ export function ImmersiveMode() {
         setIsThinking(false);
         stopThinkingAudio();
         setIsGovernorSpeaking(true);
-        setCurrentGovernorText(governorResponse);
+        setCurrentGovernorText(displayResponse);
 
         const finishGovernorTurn = () => {
           // Add all current thoughts to dialog history (use ref for latest value)
@@ -497,19 +545,39 @@ export function ImmersiveMode() {
             {
               id: uuidv4(),
               type: 'governor' as const,
-              content: governorResponse,
+              content: displayResponse, // Use cleaned response without markers
             },
           ]);
           
           setIsGovernorSpeaking(false);
           setCurrentGovernorText(null);
           setCurrentThoughts([]);
-          setImmersiveTurn('user');
           
-          // Auto-start listening (no wake word needed)
-          setIsListening(true);
-          if (elevenLabsApiKey) {
-            scribe.start().catch(console.error);
+          // Handle phase transitions or journey completion
+          if (journeyComplete && journeySession) {
+            // Complete the journey
+            completeJourneySession(journeySession.id).catch(console.error);
+            // Brief pause then show completion message
+            setTimeout(() => {
+              // Could add a completion celebration here
+              setImmersiveTurn('user');
+              setIsListening(true);
+              if (elevenLabsApiKey) {
+                scribe.start().catch(console.error);
+              }
+            }, 1500);
+          } else if (phaseTransition && journeySession) {
+            // Set pending transition - this will show the confirmation modal
+            setJourneyPendingTransition(phaseTransition);
+            // Don't auto-start listening - wait for user to confirm or decline
+            setImmersiveTurn('user');
+          } else {
+            // Normal turn - auto-start listening
+            setImmersiveTurn('user');
+            setIsListening(true);
+            if (elevenLabsApiKey) {
+              scribe.start().catch(console.error);
+            }
           }
         };
 
@@ -532,12 +600,12 @@ export function ImmersiveMode() {
               
               tts.enqueue({
                 id: uuidv4(),
-                text: governorResponse,
+                text: displayResponse, // Use cleaned response without markers
                 voiceId: immersiveVoices.governor!,
                 agentType: 'governor' as unknown as AgentType,
                 onStart: () => {
                   setIsGovernorSpeaking(true);
-                  setCurrentGovernorText(governorResponse);
+                  setCurrentGovernorText(displayResponse);
                 },
                 onEnd: () => {
                   clearTimeout(timeoutId);
@@ -555,12 +623,12 @@ export function ImmersiveMode() {
           } catch {
             // Graceful degradation: show text briefly then continue
             console.warn('Governor TTS failed, continuing with text-only');
-            await new Promise(resolve => setTimeout(resolve, Math.min(governorResponse.length * 15, 2000)));
+            await new Promise(resolve => setTimeout(resolve, Math.min(displayResponse.length * 15, 2000)));
             safeFinishGovernorTurn();
           }
         } else {
           // No governor voice - text-only with fast reading
-          await new Promise(resolve => setTimeout(resolve, Math.min(governorResponse.length * 15, 2000)));
+          await new Promise(resolve => setTimeout(resolve, Math.min(displayResponse.length * 15, 2000)));
           safeFinishGovernorTurn();
         }
         
@@ -943,12 +1011,33 @@ export function ImmersiveMode() {
     return () => container.removeEventListener('scroll', handleScroll);
   }, []);
   
-  // Auto-scroll thoughts panel when new thoughts appear, but only if user is near bottom
-  useEffect(() => {
-    if (thoughtsEndRef.current && isNearBottomRef.current) {
-      thoughtsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+  // Auto-scroll to bottom - more aggressive scrolling
+  const scrollToBottom = useCallback(() => {
+    if (dialogScrollRef.current) {
+      // Use scrollTop for immediate, reliable scrolling
+      dialogScrollRef.current.scrollTop = dialogScrollRef.current.scrollHeight;
     }
-  }, [currentThoughts, dialogHistory, currentGovernorText]);
+  }, []);
+  
+  // Auto-scroll when dialog history changes (only if user hasn't scrolled up)
+  useEffect(() => {
+    if (isNearBottomRef.current) {
+      // Small delay to let content render
+      requestAnimationFrame(() => {
+        scrollToBottom();
+      });
+    }
+  }, [dialogHistory, scrollToBottom]);
+  
+  // Always scroll when new thoughts or governor text appear
+  useEffect(() => {
+    if (currentThoughts.length > 0 || currentGovernorText) {
+      // Force scroll for new content
+      requestAnimationFrame(() => {
+        scrollToBottom();
+      });
+    }
+  }, [currentThoughts, currentGovernorText, scrollToBottom]);
 
 
   if (!isImmersiveMode) return null;
@@ -1468,9 +1557,9 @@ export function ImmersiveMode() {
                     />
                     {/* Text area */}
                     <div className="flex-1 min-h-[40px] flex items-center">
-                      {currentTranscript.replace(/\s*submit[.!?,\s]*$/i, '').trim() ? (
+                      {formatTranscription(currentTranscript.replace(/\s*submit[.!?,\s]*$/i, '').trim()) ? (
                         <p className="text-sm text-white/90 leading-relaxed font-light text-left">
-                          {currentTranscript.replace(/\s*submit[.!?,\s]*$/i, '').trim()}
+                          {formatTranscription(currentTranscript.replace(/\s*submit[.!?,\s]*$/i, '').trim())}
                         </p>
                       ) : (
                         <motion.span 
@@ -1907,29 +1996,43 @@ export function ImmersiveMode() {
                 
                 <div className="flex gap-2">
                   <button
-                    onClick={() => setJourneyPendingTransition(null)}
+                    onClick={() => {
+                      // User declined - stay in current phase, resume listening
+                      setJourneyPendingTransition(null);
+                      setIsListening(true);
+                      if (elevenLabsApiKey) {
+                        scribe.start().catch(console.error);
+                      }
+                    }}
                     className="flex-1 px-3 py-2 rounded-lg border border-slate-700/30 text-slate-500 hover:text-slate-300 hover:border-slate-600/40 transition-all text-xs"
                   >
                     Not yet
                   </button>
                   <button
                     onClick={async () => {
-                      if (journeySession.pendingTransition === 'acceptance') {
-                        // Complete the journey
+                      const newPhase = journeySession.pendingTransition;
+                      if (newPhase === 'acceptance') {
+                        // First update to acceptance phase, then mark complete
                         try {
+                          await updateJourneyPhase(journeySession.id, 'acceptance');
                           await completeJourneySession(journeySession.id);
                         } catch (err) {
                           console.error('Failed to complete journey:', err);
                         }
-                      } else {
-                        // Confirm phase transition
+                      } else if (newPhase) {
+                        // Transition to the new phase
                         try {
-                          await confirmJourneyPhaseBackend(journeySession.id);
+                          await updateJourneyPhase(journeySession.id, newPhase);
                         } catch (err) {
-                          console.error('Failed to confirm phase:', err);
+                          console.error('Failed to update phase:', err);
                         }
                       }
                       confirmJourneyTransition();
+                      // Resume listening after transition
+                      setIsListening(true);
+                      if (elevenLabsApiKey) {
+                        scribe.start().catch(console.error);
+                      }
                     }}
                     className="flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-all"
                     style={{
