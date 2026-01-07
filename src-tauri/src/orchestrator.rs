@@ -244,7 +244,7 @@ pub fn decide_response_heuristic(
     }
     
     // ===== DOMINANT TRAIT BIAS: Scale based on how dominant they actually are =====
-    if let Some(dominant) = dominant_trait {
+        if let Some(dominant) = dominant_trait {
         let dominant_weight = match dominant {
             "instinct" => instinct_w,
             "logic" => logic_w,
@@ -262,7 +262,7 @@ pub fn decide_response_heuristic(
             if let Some(score) = scores.get_mut(dominant) {
                 *score -= dominance_margin * 0.3;
             }
-            logging::log_routing(None, &format!(
+                logging::log_routing(None, &format!(
                 "[HEURISTIC] DISCO: Suppressing dominant {} by -{:.3}",
                 dominant, dominance_margin * 0.3
             ));
@@ -276,7 +276,7 @@ pub fn decide_response_heuristic(
             logging::log_routing(None, &format!(
                 "[HEURISTIC] Dominant trait bias: +{:.3} to {} (margin: {:.3})",
                 bias, dominant, dominance_margin
-            ));
+                ));
         }
     }
     
@@ -1423,10 +1423,10 @@ BREVITY IS CRITICAL: 1-2 sentences max. Say one thing well, then stop."#,
         }
     } else {
         match primary_agent {
-            Some("instinct") => "Snap",
-            Some("logic") => "Dot",
-            Some("psyche") => "Puff",
-            _ => "another agent",
+        Some("instinct") => "Snap",
+        Some("logic") => "Dot",
+        Some("psyche") => "Puff",
+        _ => "another agent",
         }
     };
     

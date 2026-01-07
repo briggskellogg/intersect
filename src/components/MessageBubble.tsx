@@ -173,7 +173,7 @@ export function MessageBubble({ message, isLatest: _isLatest, governorIcon, isDi
                 : 'bg-charcoal/25 border border-ash/40 opacity-75'
               : isLightMode
                 ? 'bg-white/90 border border-slate-200/80 text-slate-900 shadow-sm'
-                : 'bg-charcoal/40 text-pearl'
+              : 'bg-charcoal/40 text-pearl'
           }`}
           style={{ maxWidth: 'calc(75vw - 60px)' }}
         >

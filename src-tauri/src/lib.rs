@@ -625,6 +625,11 @@ async fn generate_governor_response(
     journey_phase: Option<&str>, // Game Mode journey phase: "exploration", "resolution", "acceptance"
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     use crate::anthropic::{AnthropicClient, AnthropicMessage, ThinkingBudget, CLAUDE_HAIKU};
+    use chrono::Local;
+    
+    // Get current date/time for context
+    let now = Local::now();
+    let current_datetime = now.format("%A, %B %d, %Y at %I:%M %p").to_string();
     
     // Format internal processing (Governor sees this, but doesn't reveal it)
     // Use neutral labels - no names like Snap/Storm etc.
@@ -761,6 +766,8 @@ You are the voice that helps them move forward."#.to_string()
     
     let system_prompt = format!(r#"You are the Governor -- a unified voice that has already processed multiple internal perspectives.
 
+CURRENT TIME: {}
+
 CRITICAL RULES:
 1. You NEVER mention thoughts, voices, agents, or internal processing
 2. You don't know the user can see your reasoning (but they can)
@@ -780,7 +787,7 @@ RECENT CONVERSATION:
 
 YOUR TASK: Respond to the user naturally, drawing on your processed insights without ever acknowledging they exist.
 
-OUTPUT: 2-4 sentences. Conversational. No meta-commentary. No roleplay asterisks like *leans in* or *pauses* -- just speak naturally. Dashes: " -- " with spaces."#, thoughts_deflection, mode_tone, trait_style, internal_processing, recent_context);
+OUTPUT: 2-4 sentences. Conversational. No meta-commentary. No roleplay asterisks like *leans in* or *pauses* -- just speak naturally. Dashes: " -- " with spaces."#, current_datetime, thoughts_deflection, mode_tone, trait_style, internal_processing, recent_context);
     
     let client = AnthropicClient::new(anthropic_key);
     let messages = vec![

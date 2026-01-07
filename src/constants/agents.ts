@@ -16,7 +16,7 @@ import logicProfile from '../assets/agents/logic.png';
 import psycheProfile from '../assets/agents/psyche.png';
 
 // Import Governor avatar (for system messages)
-import governorAvatar from '../assets/governor.png';
+import governorAvatar from '../assets/governor-transparent.png';
 
 // Normal mode agents - helpful, practical, solution-oriented
 export const AGENTS: Record<AgentType, AgentConfig> = {

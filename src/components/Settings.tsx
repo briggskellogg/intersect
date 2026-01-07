@@ -681,7 +681,7 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                   <Calendar className="w-3.5 h-3.5 text-ash/50" strokeWidth={1.5} />
                   <span>Started {formatDate(activePersonaProfile.createdAt)}</span>
                   <span className="px-2 py-0.5 bg-smoke/40 rounded-full text-ash/60">{activePersonaProfile.messageCount} messages</span>
-                </div>
+              </div>
               )}
               <button
                 onClick={onClose}
@@ -706,7 +706,7 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                     <span>Inspired by Disco Elysium</span>
                     <ExternalLink className="w-2.5 h-2.5" strokeWidth={1.5} />
                   </a>
-                </div>
+                    </div>
                 <div className="flex gap-2">
                   {(Object.keys(ARCHETYPES) as Array<keyof typeof ARCHETYPES>).map((key) => {
                     const archetype = ARCHETYPES[key];
@@ -774,8 +774,8 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                       </button>
                     );
                   })}
-                </div>
-              </div>
+                    </div>
+                  </div>
 
               {/* Agent weights - Radar chart */}
               {activePersonaProfile && (
@@ -834,7 +834,7 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                             <div className="text-[10px] text-ash/70 font-sans leading-relaxed flex items-start gap-2">
                               <span className="inline-block w-3 h-0.5 mt-1.5 bg-gradient-to-r from-red-400 via-cyan-400 to-purple-400 rounded shrink-0" />
                               <span><span className="text-pearl font-medium">Solid triangle</span> — Your points. What you set to prioritize voices.</span>
-                            </div>
+                        </div>
                             
                             <div className="text-[10px] text-ash/70 font-sans leading-relaxed flex items-start gap-2">
                               <span className="inline-block w-3 h-0.5 mt-1.5 border-t border-dashed border-ash/60 shrink-0" />
@@ -900,10 +900,10 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
             <div className="flex items-center justify-between px-4 py-3 border-t border-smoke/30 shrink-0">
               {/* Left: Copyright + Reset + Journey Sessions */}
               <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1.5">
-                  <img src={governorTransparent} alt="" className="w-4 h-4 opacity-60" />
-                  <p className="text-xs text-ash/60 font-sans">Intersect v1.2.1</p>
-                </div>
+              <div className="flex items-center gap-1.5">
+                <img src={governorTransparent} alt="" className="w-4 h-4 opacity-60" />
+                  <p className="text-xs text-ash/60 font-sans">Intersect v1.2.2</p>
+              </div>
                 {/* Journey Sessions Completed counter */}
                 {journeySessionsCompleted > 0 && (
                   <div 

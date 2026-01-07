@@ -1048,6 +1048,24 @@ export function ImmersiveMode() {
       });
     }
   }, [currentThoughts, currentGovernorText, scrollToBottom]);
+  
+  // Continuous scroll during active typing (thoughts or governor speaking)
+  useEffect(() => {
+    // Only run scroll interval when there's active content being typed
+    const hasActiveTyping = currentThoughts.some(t => t.isActive && !t.isComplete) || 
+                            (currentGovernorText && isGovernorSpeaking);
+    
+    if (!hasActiveTyping) return;
+    
+    // Scroll every 50ms while typing is active
+    const scrollInterval = setInterval(() => {
+      if (dialogScrollRef.current && isNearBottomRef.current) {
+        dialogScrollRef.current.scrollTop = dialogScrollRef.current.scrollHeight;
+      }
+    }, 50);
+    
+    return () => clearInterval(scrollInterval);
+  }, [currentThoughts, currentGovernorText, isGovernorSpeaking]);
 
 
   if (!isImmersiveMode) return null;
@@ -1070,7 +1088,7 @@ export function ImmersiveMode() {
       >
         {/* Slow-moving fog layers - Disco Elysium atmosphere - fades based on journey phase */}
         <motion.div 
-          className="absolute inset-0 overflow-hidden pointer-events-none"
+          className="absolute inset-0 overflow-hidden pointer-events-none rounded-xl"
           animate={{ opacity: atmosphere.fogOpacity }}
           transition={{ duration: 4, ease: 'easeInOut' }}
         >
@@ -1105,7 +1123,7 @@ export function ImmersiveMode() {
 
         {/* Ambient background glow from center - intensity increases as journey progresses */}
         <motion.div 
-          className="absolute inset-0 pointer-events-none"
+          className="absolute inset-0 pointer-events-none rounded-xl overflow-hidden"
           animate={{ opacity: 0.5 + atmosphere.glowOpacity }}
           transition={{ duration: 3, ease: 'easeInOut' }}
         >
@@ -1141,7 +1159,7 @@ export function ImmersiveMode() {
 
         {/* Deep vignette - softens as journey progresses */}
         <motion.div 
-          className="absolute inset-0 pointer-events-none"
+          className="absolute inset-0 pointer-events-none rounded-xl"
           animate={{ opacity: atmosphere.vignetteIntensity }}
           transition={{ duration: 4, ease: 'easeInOut' }}
           style={{
@@ -1593,36 +1611,43 @@ export function ImmersiveMode() {
 
         {/* Center content - Governor (completely transparent, no border) */}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-          <div ref={governorRef} className="relative pointer-events-auto">
+          <div ref={governorRef} className="relative pointer-events-auto flex items-center justify-center" style={{ width: 224, height: 224 }}>
             {/* Thinking rings - pulse when processing - slow dreamy pace */}
             {isThinking && (
               <>
-                {[0, 1, 2].map((i) => (
-                  <motion.div
-                    key={i}
-                    className="absolute inset-0 rounded-full border-2"
-                    style={{ 
-                      borderColor: themeColor,
-                      margin: `${-20 - i * 20}px`,
-                    }}
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ 
-                      opacity: [0.2, 0.5, 0.2],
-                      scale: [1, 1.08, 1],
-                    }}
-                    transition={{ 
-                      repeat: Infinity, 
-                      duration: 3.5, 
-                      delay: i * 0.6,
-                      ease: 'easeInOut',
-                    }}
-                  />
-                ))}
+                {[0, 1, 2].map((i) => {
+                  const ringSize = 224 + (20 + i * 20) * 2;
+                  const offset = (ringSize - 224) / 2;
+                  return (
+                    <motion.div
+                      key={i}
+                      className="absolute rounded-full border-2"
+                      style={{ 
+                        borderColor: themeColor,
+                        width: ringSize,
+                        height: ringSize,
+                        top: -offset,
+                        left: -offset,
+                      }}
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ 
+                        opacity: [0.2, 0.5, 0.2],
+                        scale: [1, 1.08, 1],
+                      }}
+                      transition={{ 
+                        repeat: Infinity, 
+                        duration: 3.5, 
+                        delay: i * 0.6,
+                        ease: 'easeInOut',
+                      }}
+                    />
+                  );
+                })}
               </>
             )}
             
             {/* Governor avatar with state-based animations */}
-            <div className="w-56 h-56 relative">
+            <div className="w-56 h-56 relative flex items-center justify-center">
               {/* Orbiting agent avatars when agents are speaking */}
               {currentThoughts.length > 0 && (
                 <div className="absolute inset-0">
@@ -1759,11 +1784,17 @@ export function ImmersiveMode() {
               )}
               
               {/* Governor image container - circular with radial fade */}
-              <div className="relative w-full h-full">
+              <div className="absolute w-56 h-56" style={{ left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }}>
                 {/* Spinning glow ring - creates rotation illusion */}
                 <motion.div
-                  className="absolute inset-[-8px] rounded-full pointer-events-none"
+                  className="absolute rounded-full pointer-events-none"
                   style={{
+                    width: 240, // 224 + 16
+                    height: 240,
+                    left: '50%',
+                    top: '50%',
+                    marginLeft: -120,
+                    marginTop: -120,
                     background: 'conic-gradient(from 0deg, transparent 0%, rgba(59, 130, 246, 0.3) 25%, transparent 50%, rgba(147, 51, 234, 0.2) 75%, transparent 100%)',
                   }}
                   animate={{
@@ -1778,8 +1809,14 @@ export function ImmersiveMode() {
                 
                 {/* Secondary counter-rotating glow */}
                 <motion.div
-                  className="absolute inset-[-4px] rounded-full pointer-events-none"
+                  className="absolute rounded-full pointer-events-none"
                   style={{
+                    width: 232, // 224 + 8
+                    height: 232,
+                    left: '50%',
+                    top: '50%',
+                    marginLeft: -116,
+                    marginTop: -116,
                     background: 'conic-gradient(from 180deg, transparent 0%, rgba(59, 130, 246, 0.15) 30%, transparent 60%, rgba(100, 116, 139, 0.1) 80%, transparent 100%)',
                   }}
                   animate={{
@@ -1794,8 +1831,12 @@ export function ImmersiveMode() {
                 
                 {/* Circular mask with radial fade - breathing scale */}
                 <motion.div 
-                  className="absolute inset-0 rounded-full overflow-hidden"
+                  className="absolute w-56 h-56 rounded-full overflow-hidden"
                   style={{
+                    left: '50%',
+                    top: '50%',
+                    marginLeft: -112,
+                    marginTop: -112,
                     WebkitMaskImage: 'radial-gradient(circle, white 40%, transparent 70%)',
                     maskImage: 'radial-gradient(circle, white 40%, transparent 70%)',
                   }}
@@ -1822,8 +1863,12 @@ export function ImmersiveMode() {
                 
                 {/* Inner glow pulse */}
                 <motion.div
-                  className="absolute inset-0 rounded-full pointer-events-none"
+                  className="absolute w-56 h-56 rounded-full pointer-events-none"
                   style={{
+                    left: '50%',
+                    top: '50%',
+                    marginLeft: -112,
+                    marginTop: -112,
                     background: isGovernorSpeaking 
                       ? 'radial-gradient(circle, transparent 25%, rgba(59, 130, 246, 0.3) 45%, transparent 65%)'
                       : isThinking

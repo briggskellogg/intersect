@@ -139,7 +139,7 @@ export function ParticleField({
   return (
     <canvas
       ref={canvasRef}
-      className={`absolute inset-0 pointer-events-none ${className}`}
+      className={`absolute inset-0 pointer-events-none rounded-xl ${className}`}
       style={{ width: '100%', height: '100%' }}
     />
   );
