@@ -157,6 +157,7 @@ export function ImmersiveMode() {
     setImmersiveMode,
     elevenLabsApiKey,
     immersiveVoices,
+    usePerAgentVoices,
     immersiveTurn,
     setImmersiveTurn,
     userProfile,
@@ -303,11 +304,16 @@ export function ImmersiveMode() {
     onError: (err) => setError(err.message),
   });
 
-  // Get voice ID for agent thoughts (voice mode always uses disco voices)
-  const getThoughtVoiceId = useCallback(() => {
-    // Voice mode always uses the disco/thoughts voice if available
-    return immersiveVoices.thoughtsDisco || immersiveVoices.instinct || immersiveVoices.logic || immersiveVoices.psyche || '';
-  }, [immersiveVoices]);
+  // Get voice ID for agent thoughts - supports per-agent voices or single voice
+  const getVoiceIdForAgent = useCallback((agentType: AgentType): string => {
+    if (usePerAgentVoices) {
+      // Use per-agent voice if configured
+      const agentVoice = immersiveVoices[agentType];
+      if (agentVoice) return agentVoice;
+    }
+    // Fall back to single disco voice for all agents
+    return immersiveVoices.thoughtsDisco || '';
+  }, [immersiveVoices, usePerAgentVoices]);
 
   // Keep ref in sync with state for use in closures
   useEffect(() => {
@@ -377,8 +383,11 @@ export function ImmersiveMode() {
       setIsThinking(false);
       stopThinkingAudio();
 
-      const thoughtVoiceId = getThoughtVoiceId();
-      const shouldPlayVoice = !!thoughtVoiceId;
+      // Check if we have any voice configured (single or per-agent)
+      const hasAnyVoice = usePerAgentVoices 
+        ? (immersiveVoices.instinct || immersiveVoices.logic || immersiveVoices.psyche)
+        : immersiveVoices.thoughtsDisco;
+      const shouldPlayVoice = !!hasAnyVoice;
       
       // Reset skip flags at start of processing
       skipToGovernorRef.current = false;
@@ -438,10 +447,11 @@ export function ImmersiveMode() {
                   }
                 }, 50);
                 
+                const voiceIdForThought = getVoiceIdForAgent(thought.agentType);
                 tts.enqueue({
                   id: thought.id,
                   text: thought.content,
-                  voiceId: thoughtVoiceId,
+                  voiceId: voiceIdForThought,
                   agentType: thought.agentType,
                   onStart: () => {},
                   onEnd: () => {
@@ -666,7 +676,7 @@ export function ImmersiveMode() {
       setImmersiveTurn('user');
       setIsListening(true);
     }
-  }, [gameModeConversationId, scribe, tts, elevenLabsApiKey, immersiveVoices, setImmersiveTurn, getThoughtVoiceId, setActivePersonaProfile]);
+  }, [gameModeConversationId, scribe, tts, elevenLabsApiKey, immersiveVoices, usePerAgentVoices, setImmersiveTurn, getVoiceIdForAgent, setActivePersonaProfile, journeySession, setJourneyPendingTransition, confirmJourneyTransition]);
 
   const submitDetection = useSubmitDetection({
     apiKey: userProfile?.apiKey || null,

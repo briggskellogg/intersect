@@ -100,9 +100,11 @@ interface AppState {
     logic: string | null;
     psyche: string | null;
     governor: string | null;
-    thoughtsDisco: string | null;
+    thoughtsDisco: string | null; // Single voice for all agents (when usePerAgentVoices is false)
   };
   setImmersiveVoice: (agent: 'instinct' | 'logic' | 'psyche' | 'governor' | 'thoughtsDisco', voiceId: string | null) => void;
+  usePerAgentVoices: boolean; // Whether to use per-agent voices or single voice for all
+  setUsePerAgentVoices: (use: boolean) => void;
   
   // Immersive mode turn state
   immersiveTurn: 'user' | 'ai';
@@ -355,6 +357,24 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       return { immersiveVoices: newVoices };
     });
+  },
+  
+  // Per-agent voices toggle - persisted to localStorage
+  usePerAgentVoices: (() => {
+    try {
+      const stored = localStorage.getItem('use-per-agent-voices');
+      return stored === 'true';
+    } catch {
+      return false;
+    }
+  })(),
+  setUsePerAgentVoices: (use) => {
+    try {
+      localStorage.setItem('use-per-agent-voices', use ? 'true' : 'false');
+    } catch (e) {
+      console.error('Failed to persist per-agent voices setting:', e);
+    }
+    set({ usePerAgentVoices: use });
   },
   
   // Immersive mode turn state

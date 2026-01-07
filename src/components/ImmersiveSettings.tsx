@@ -11,11 +11,14 @@ interface ImmersiveSettingsProps {
   onOpenApiKeys: () => void;
 }
 
-type VoiceGroup = 'disco' | 'governor';
+type VoiceGroup = 'disco' | 'instinct' | 'logic' | 'psyche' | 'governor';
 
 // Sample text for voice preview
 const PREVIEW_TEXTS: Record<VoiceGroup, string> = {
   disco: "Why are you really avoiding this?",
+  instinct: "Your gut is screaming. Are you listening?",
+  logic: "Let's analyze the actual data here.",
+  psyche: "What are you really feeling right now?",
   governor: "Let me synthesize what we've discussed.",
 };
 
@@ -24,6 +27,8 @@ export function ImmersiveSettings({ isOpen, onClose }: ImmersiveSettingsProps) {
     elevenLabsApiKey,
     immersiveVoices, 
     setImmersiveVoice,
+    usePerAgentVoices,
+    setUsePerAgentVoices,
     backgroundMusic,
     backgroundMusicVolume,
     setBackgroundMusicVolume,
@@ -33,8 +38,12 @@ export function ImmersiveSettings({ isOpen, onClose }: ImmersiveSettingsProps) {
   
   const [localVoices, setLocalVoices] = useState({
     disco: (immersiveVoices as Record<string, string | null>).thoughtsDisco || '',
+    instinct: immersiveVoices.instinct || '',
+    logic: immersiveVoices.logic || '',
+    psyche: immersiveVoices.psyche || '',
     governor: immersiveVoices.governor || '',
   });
+  const [localUsePerAgent, setLocalUsePerAgent] = useState(usePerAgentVoices);
   const [previewingVoice, setPreviewingVoice] = useState<VoiceGroup | null>(null);
   const [previewAudio, setPreviewAudio] = useState<HTMLAudioElement | null>(null);
 
@@ -42,9 +51,13 @@ export function ImmersiveSettings({ isOpen, onClose }: ImmersiveSettingsProps) {
   useEffect(() => {
     setLocalVoices({
       disco: (immersiveVoices as Record<string, string | null>).thoughtsDisco || '',
+      instinct: immersiveVoices.instinct || '',
+      logic: immersiveVoices.logic || '',
+      psyche: immersiveVoices.psyche || '',
       governor: immersiveVoices.governor || '',
     });
-  }, [immersiveVoices, isOpen]);
+    setLocalUsePerAgent(usePerAgentVoices);
+  }, [immersiveVoices, usePerAgentVoices, isOpen]);
 
   // ESC to close
   useEffect(() => {
@@ -59,8 +72,14 @@ export function ImmersiveSettings({ isOpen, onClose }: ImmersiveSettingsProps) {
   }, [isOpen, onClose]);
 
   const handleSave = () => {
-    // Save disco voice (used for all agent thoughts in Game Mode)
+    // Save per-agent toggle
+    setUsePerAgentVoices(localUsePerAgent);
+    // Save disco voice (used for all agent thoughts when not using per-agent)
     setImmersiveVoice('thoughtsDisco', localVoices.disco || null);
+    // Save individual agent voices
+    setImmersiveVoice('instinct', localVoices.instinct || null);
+    setImmersiveVoice('logic', localVoices.logic || null);
+    setImmersiveVoice('psyche', localVoices.psyche || null);
     // Save governor voice
     setImmersiveVoice('governor', localVoices.governor || null);
     onClose();
@@ -161,18 +180,77 @@ export function ImmersiveSettings({ isOpen, onClose }: ImmersiveSettingsProps) {
 
               {/* Content */}
               <div className="p-5 space-y-4">
-                {/* Disco Voice (Game Mode agents) */}
-                <VoiceRow
-                  sublabel="Swarm, Spin, Storm"
-                  avatars={[DISCO_AGENTS.instinct.avatar, DISCO_AGENTS.logic.avatar, DISCO_AGENTS.psyche.avatar]}
-                  value={localVoices.disco}
-                  onChange={(v) => setLocalVoices(prev => ({ ...prev, disco: v }))}
-                  isPreviewing={previewingVoice === 'disco'}
-                  canPreview={canPreview('disco')}
-                  onPreview={() => previewingVoice === 'disco' ? stopPreview() : handlePreviewVoice('disco')}
-                  accentColor="#EF4444"
-                  isDisco
-                />
+                {/* Agent Voices Section */}
+                <div className="space-y-3">
+                  {/* Toggle: Single vs Per-Agent */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-slate-400">Agent Voices</span>
+                    <button
+                      onClick={() => setLocalUsePerAgent(!localUsePerAgent)}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-medium transition-all border ${
+                        localUsePerAgent
+                          ? 'bg-purple-500/20 border-purple-500/40 text-purple-300'
+                          : 'bg-slate-800/50 border-slate-700/40 text-slate-400'
+                      }`}
+                    >
+                      {localUsePerAgent ? 'Per Agent' : 'Single Voice'}
+                    </button>
+                  </div>
+                  
+                  {/* Single voice for all agents */}
+                  {!localUsePerAgent && (
+                    <VoiceRow
+                      sublabel="Swarm, Spin, Storm"
+                      avatars={[DISCO_AGENTS.instinct.avatar, DISCO_AGENTS.logic.avatar, DISCO_AGENTS.psyche.avatar]}
+                      value={localVoices.disco}
+                      onChange={(v) => setLocalVoices(prev => ({ ...prev, disco: v }))}
+                      isPreviewing={previewingVoice === 'disco'}
+                      canPreview={canPreview('disco')}
+                      onPreview={() => previewingVoice === 'disco' ? stopPreview() : handlePreviewVoice('disco')}
+                      accentColor="#EF4444"
+                      isDisco
+                    />
+                  )}
+                  
+                  {/* Per-agent voices */}
+                  {localUsePerAgent && (
+                    <div className="space-y-2">
+                      <VoiceRow
+                        label="Swarm"
+                        avatars={[DISCO_AGENTS.instinct.avatar]}
+                        value={localVoices.instinct}
+                        onChange={(v) => setLocalVoices(prev => ({ ...prev, instinct: v }))}
+                        isPreviewing={previewingVoice === 'instinct'}
+                        canPreview={canPreview('instinct')}
+                        onPreview={() => previewingVoice === 'instinct' ? stopPreview() : handlePreviewVoice('instinct')}
+                        accentColor={DISCO_AGENTS.instinct.color}
+                        single
+                      />
+                      <VoiceRow
+                        label="Spin"
+                        avatars={[DISCO_AGENTS.logic.avatar]}
+                        value={localVoices.logic}
+                        onChange={(v) => setLocalVoices(prev => ({ ...prev, logic: v }))}
+                        isPreviewing={previewingVoice === 'logic'}
+                        canPreview={canPreview('logic')}
+                        onPreview={() => previewingVoice === 'logic' ? stopPreview() : handlePreviewVoice('logic')}
+                        accentColor={DISCO_AGENTS.logic.color}
+                        single
+                      />
+                      <VoiceRow
+                        label="Storm"
+                        avatars={[DISCO_AGENTS.psyche.avatar]}
+                        value={localVoices.psyche}
+                        onChange={(v) => setLocalVoices(prev => ({ ...prev, psyche: v }))}
+                        isPreviewing={previewingVoice === 'psyche'}
+                        canPreview={canPreview('psyche')}
+                        onPreview={() => previewingVoice === 'psyche' ? stopPreview() : handlePreviewVoice('psyche')}
+                        accentColor={DISCO_AGENTS.psyche.color}
+                        single
+                      />
+                    </div>
+                  )}
+                </div>
 
                 {/* Governor Voice */}
                 <VoiceRow
